@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>媒体归档</title>
+<style>
+:root{
+  --bg:#0e1014; --panel:#161a21; --panel2:#1d222b; --line:#262d38;
+  --txt:#e8ecf3; --dim:#8a94a6; --acc:#4d8dfd; --ok:#3ecf8e; --warn:#ffb84d; --err:#ff5d6c;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.5 -apple-system,"SF Pro Text","PingFang SC",sans-serif}
+a{color:var(--acc);text-decoration:none}
+header{position:sticky;top:0;z-index:20;background:rgba(14,16,20,.92);backdrop-filter:blur(12px);border-bottom:1px solid var(--line);padding:14px 20px}
+.bar{display:flex;gap:10px;align-items:center;max-width:1500px;margin:0 auto}
+.logo{font-weight:700;font-size:16px;letter-spacing:.5px;white-space:nowrap}
+.logo span{color:var(--acc)}
+input[type=text]{flex:1;min-width:180px;background:var(--panel);border:1px solid var(--line);color:var(--txt);padding:10px 14px;border-radius:10px;font-size:14px;outline:none}
+input[type=text]:focus{border-color:var(--acc)}
+button{background:var(--panel2);color:var(--txt);border:1px solid var(--line);padding:10px 16px;border-radius:10px;cursor:pointer;font-size:14px;white-space:nowrap}
+button:hover{border-color:var(--acc)}
+button.primary{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:600}
+button.primary:disabled{opacity:.5;cursor:default}
+.wrap{display:grid;grid-template-columns:230px 1fr;gap:18px;max-width:1500px;margin:18px auto;padding:0 20px 60px}
+aside{position:sticky;top:86px;align-self:start;max-height:calc(100vh - 110px);overflow:auto}
+.sect{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:12px}
+.sect h3{margin:0 0 8px;font-size:12px;color:var(--dim);font-weight:600;letter-spacing:.6px;text-transform:uppercase}
+.chip{display:flex;justify-content:space-between;gap:8px;padding:7px 10px;border-radius:8px;cursor:pointer;color:var(--dim)}
+.chip:hover{background:var(--panel2);color:var(--txt)}
+.chip.on{background:var(--acc);color:#fff}
+.chip b{font-weight:600;color:inherit;opacity:.8}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:14px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden;cursor:pointer;transition:.15s;}
+.card:hover{transform:translateY(-2px);border-color:#3a4658}
+.thumb{position:relative;background:#000;aspect-ratio:16/10;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.thumb img,.thumb video{width:100%;height:100%;object-fit:cover}
+.thumb .ph{color:#3a4453;font-size:28px}
+.badge{position:absolute;top:8px;left:8px;background:rgba(0,0,0,.65);backdrop-filter:blur(6px);border-radius:6px;padding:2px 8px;font-size:11px;font-weight:600}
+.badge.v{color:#7fd1ff}
+.badge.i{color:#ffd479}
+.cnt{position:absolute;bottom:8px;right:8px;background:rgba(0,0,0,.65);border-radius:6px;padding:2px 8px;font-size:11px}
+.body{padding:10px 12px}
+.title{font-size:13px;font-weight:600;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:36px}
+.author{margin-top:6px;font-size:12px;color:var(--acc);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.meta{margin-top:4px;font-size:11px;color:var(--dim);display:flex;gap:8px;flex-wrap:wrap}
+.status{max-width:1500px;margin:0 auto;padding:0 20px;font-size:12px;color:var(--dim)}
+.status .ok{color:var(--ok)}.status .err{color:var(--err)}.status .work{color:var(--warn)}
+.empty{text-align:center;color:var(--dim);padding:60px 0}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.85);display:none;align-items:center;justify-content:center;z-index:50;padding:30px}
+.modal.on{display:flex}
+.mbox{background:var(--panel);border:1px solid var(--line);border-radius:16px;max-width:1100px;width:100%;max-height:90vh;overflow:auto}
+.mhead{display:flex;justify-content:space-between;gap:12px;padding:14px 18px;border-bottom:1px solid var(--line);align-items:center}
+.mhead .t{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mbody{padding:16px 18px}
+.mbody video,.mbody img{max-width:100%;border-radius:10px;display:block;margin:0 auto 12px;background:#000}
+.imgs{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px}
+.imgs img{margin:0;cursor:zoom-in}
+.kv{font-size:12px;color:var(--dim);display:grid;grid-template-columns:70px 1fr;gap:4px 10px;margin:10px 0}
+.kv b{color:var(--txt);font-weight:500}
+pre.log{background:#0b0d11;border:1px solid var(--line);border-radius:8px;padding:10px;font-size:11px;color:var(--dim);max-height:180px;overflow:auto;white-space:pre-wrap}
+.stat{display:flex;gap:16px;font-size:12px;color:var(--dim);margin-top:12px}
+.stat b{color:var(--txt)}
+@media(max-width:760px){.wrap{grid-template-columns:1fr}aside{position:static;max-height:none}}
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <div class="logo">媒体<span>归档</span></div>
+    <input id="url" type="text" placeholder="粘贴抖音 / 小红书 / X / B站 / YouTube / IG / 微博 / Telegram 链接，回车即归档">
+    <button class="primary" id="go">归档</button>
+    <button id="refresh">刷新</button>
+  </div>
+</header>
+<div class="status" id="status">就绪</div>
+<div class="wrap">
+  <aside>
+    <div class="sect">
+      <h3>平台</h3>
+      <div id="platforms"></div>
+    </div>
+    <div class="sect">
+      <h3>博主</h3>
+      <div id="authors" style="max-height:46vh;overflow:auto"></div>
+    </div>
+    <div class="sect">
+      <h3>搜索</h3>
+      <input id="q" type="text" placeholder="标题 / 博主 / 链接" style="width:100%">
+    </div>
+  </aside>
+  <main>
+    <div class="grid" id="grid"></div>
+    <div class="empty" id="empty" style="display:none">还没有归档内容，粘一条链接试试</div>
+    <div class="stat" id="stats"></div>
+  </main>
+</div>
+
+<div class="modal" id="modal">
+  <div class="mbox">
+    <div class="mhead">
+      <div class="t" id="mtitle"></div>
+      <div style="display:flex;gap:8px">
+        <button id="mreveal">在 Finder 显示</button>
+        <button id="mclose">关闭</button>
+      </div>
+    </div>
+    <div class="mbody" id="mbody"></div>
+  </div>
+</div>
+
+<script>
+const $=s=>document.querySelector(s);
+let state={q:"",platform:"",author:""};
+let currentTask=null,timer=null;
+
+function fmtSize(n){if(!n)return "0 B";const u=["B","KB","MB","GB"];let i=0;while(n>=1024&&i<u.length-1){n/=1024;i++}return n.toFixed(i?1:0)+" "+u[i]}
+function esc(s){return (s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))}
+
+async function loadAll(){
+  const p=new URLSearchParams({q:state.q,platform:state.platform,author:state.author});
+  const [items,plats,authors,stats]=await Promise.all([
+    fetch("/api/items?"+p).then(r=>r.json()),
+    fetch("/api/platforms").then(r=>r.json()),
+    fetch("/api/authors").then(r=>r.json()),
+    fetch("/api/stats").then(r=>r.json())
+  ]);
+  renderItems(items); renderPlatforms(plats); renderAuthors(authors);
+  $("#stats").innerHTML=`共 <b>${stats.items}</b> 条作品 ｜ <b>${stats.files}</b> 个文件 ｜ <b>${fmtSize(stats.size)}</b> ｜ <b>${stats.platforms}</b> 个平台`;
+}
+
+function renderItems(items){
+  const g=$("#grid"); g.innerHTML="";
+  $("#empty").style.display=items.length?"none":"block";
+  items.forEach(it=>{
+    const first=(it.files||[])[0];
+    const isVid=first&&first.kind==="video";
+    const card=document.createElement("div"); card.className="card";
+    card.innerHTML=`
+      <div class="thumb">
+        ${first? (isVid?`<video src="${first.url}#t=0.1" preload="metadata" muted></video>`
+                        :`<img src="${first.url}" loading="lazy">`)
+                :`<div class="ph">◌</div>`}
+        <div class="badge ${isVid?"v":"i"}">${isVid?"视频":"图文"}</div>
+        ${it.file_count>1?`<div class="cnt">${it.file_count} 个文件</div>`:""}
+      </div>
+      <div class="body">
+        <div class="title">${esc(it.title)||"（无标题）"}</div>
+        <div class="author">${esc(it.author)||"未知博主"}</div>
+        <div class="meta"><span>${it.platform_cn}</span><span>${it.created||it.saved}</span>${it.digg?`<span>♡ ${it.digg}</span>`:""}</div>
+      </div>`;
+    card.onclick=()=>openItem(it);
+    g.appendChild(card);
+  });
+}
+
+function renderPlatforms(rows){
+  const box=$("#platforms"); box.innerHTML="";
+  const all=document.createElement("div");
+  all.className="chip"+(state.platform?"":" on");
+  all.innerHTML=`<span>全部</span><b>${rows.reduce((a,b)=>a+b.n,0)}</b>`;
+  all.onclick=()=>{state.platform="";state.author="";loadAll()};
+  box.appendChild(all);
+  rows.forEach(r=>{
+    const d=document.createElement("div");
+    d.className="chip"+(state.platform===r.platform_cn?" on":"");
+    d.innerHTML=`<span>${esc(r.platform_cn)}</span><b>${r.n}</b>`;
+    d.onclick=()=>{state.platform=r.platform_cn;state.author="";loadAll()};
+    box.appendChild(d);
+  });
+}
+
+function renderAuthors(rows){
+  const box=$("#authors"); box.innerHTML="";
+  const filtered=state.platform?rows.filter(r=>r.platform_cn===state.platform):rows;
+  const all=document.createElement("div");
+  all.className="chip"+(state.author?"":" on");
+  all.innerHTML="<span>全部博主</span>";
+  all.onclick=()=>{state.author="";loadAll()};
+  box.appendChild(all);
+  filtered.forEach(r=>{
+    const d=document.createElement("div");
+    d.className="chip"+(state.author===r.author?" on":"");
+    d.innerHTML=`<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.author)||"?"}</span><b>${r.n}</b>`;
+    d.onclick=()=>{state.author=r.author;loadAll()};
+    box.appendChild(d);
+  });
+}
+
+function openItem(it){
+  $("#mtitle").textContent=it.title||"（无标题）";
+  const b=$("#mbody"); b.innerHTML="";
+  const vids=(it.files||[]).filter(f=>f.kind==="video");
+  const imgs=(it.files||[]).filter(f=>f.kind==="image");
+  if(vids.length){
+    const v=document.createElement("video");
+    v.src=vids[0].url; v.controls=true; v.autoplay=true; b.appendChild(v);
+  }
+  if(imgs.length){
+    const g=document.createElement("div"); g.className="imgs";
+    imgs.forEach(f=>{const i=document.createElement("img");i.src=f.url;i.loading="lazy";i.onclick=()=>window.open(f.url);g.appendChild(i)});
+    b.appendChild(g);
+  }
+  const kv=document.createElement("div"); kv.className="kv";
+  kv.innerHTML=`
+    <span>平台</span><b>${esc(it.platform_cn)}</b>
+    <span>博主</span><b>${esc(it.author)||"?"}${it.author_url?` · <a href="${it.author_url}" target="_blank">主页</a>`:""}</b>
+    <span>作品ID</span><b>${esc(it.item_id||"")}</b>
+    <span>发布时间</span><b>${it.created||"-"}</b>
+    <span>点赞</span><b>${it.digg??"-"} ｜ 评论 ${it.comment??"-"} ｜ 收藏 ${it.collect??"-"}</b>
+    <span>目录</span><b style="word-break:break-all">${esc(it.folder)}</b>
+    <span>原始链接</span><b><a href="${it.source_url}" target="_blank">打开原帖</a></b>`;
+  b.appendChild(kv);
+  $("#mreveal").onclick=()=>fetch("/api/reveal",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({path:it.folder})});
+  $("#modal").classList.add("on");
+}
+
+$("#mclose").onclick=()=>{$("#modal").classList.remove("on");$("#mbody").innerHTML=""};
+$("#modal").onclick=e=>{if(e.target.id==="modal"){$("#modal").classList.remove("on");$("#mbody").innerHTML=""}};
+$("#refresh").onclick=()=>loadAll();
+$("#q").oninput=e=>{clearTimeout(window._qt);window._qt=setTimeout(()=>{state.q=e.target.value.trim();loadAll()},250)};
+
+async function startArchive(url){
+  if(!url||!/^https?:\/\//.test(url)){$("#status").innerHTML='<span class="err">请粘贴以 http(s):// 开头的链接</span>';return}
+  $("#go").disabled=true;
+  $("#status").innerHTML='<span class="work">正在抓取…（抖音 30~120 秒，首次会启动 Chrome）</span>';
+  const r=await fetch("/api/archive",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({url})}).then(r=>r.json());
+  if(r.error){$("#status").innerHTML='<span class="err">'+esc(r.error)+'</span>';$("#go").disabled=false;return}
+  currentTask=r.task; pollTask();
+}
+
+async function pollTask(){
+  if(!currentTask)return;
+  const t=await fetch("/api/task/"+currentTask).then(r=>r.json());
+  if(t.status==="running"){
+    $("#status").innerHTML='<span class="work">处理中… '+esc(t.url||"")+'</span>';
+    timer=setTimeout(pollTask,1200); return;
+  }
+  $("#go").disabled=false;
+  if(t.status==="done"){
+    $("#status").innerHTML='<span class="ok">✓ 已归档：'+esc(t.folder||"")+'</span>';
+    $("#url").value=""; loadAll();
+  }else{
+    $("#status").innerHTML='<span class="err">✗ 归档失败</span><pre class="log">'+esc(t.log||"")+'</pre>';
+  }
+  currentTask=null;
+}
+
+$("#go").onclick=()=>startArchive($("#url").value.trim());
+$("#url").addEventListener("keydown",e=>{if(e.key==="Enter")startArchive(e.target.value.trim())});
+loadAll();
+</script>
+</body>
+</html>

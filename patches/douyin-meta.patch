@@ -1,0 +1,106 @@
+diff --git a/scripts/capture_media_url.js b/scripts/capture_media_url.js
+index 62f3567..64b4a35 100755
+--- a/scripts/capture_media_url.js
++++ b/scripts/capture_media_url.js
+@@ -249,6 +249,36 @@ function collectNetworkMedia(events) {
+     }
+   }
+ 
++  // ---- 3. 导出作品元信息（博主 / 描述 / 发布时间）----
++  let metaItem = null;
++  for (const text of detailBodies) {
++    try {
++      const d = JSON.parse(text);
++      const a = d?.aweme_detail || d?.aweme_details?.[0] || d?.item_list?.[0] || d?.videoData || d;
++      if (a && (a.author || a.desc)) { metaItem = a; break; }
++    } catch (e) {}
++  }
++  const fsMod = await import('node:fs');
++  if (metaItem) {
++    const au = metaItem.author || {};
++    const meta = {
++      aweme_id: String(metaItem.aweme_id || id || ''),
++      nickname: au.nickname || '',
++      unique_id: au.unique_id || '',
++      sec_uid: au.sec_uid || '',
++      home: au.sec_uid ? `https://www.douyin.com/user/${au.sec_uid}` : '',
++      desc: metaItem.desc || '',
++      create_time: metaItem.create_time || 0,
++      type: (metaItem.images && metaItem.images.length) ? '图文' : '视频',
++      image_count: (metaItem.images || []).length,
++      statistics: metaItem.statistics || null,
++    };
++    fsMod.writeFileSync('/tmp/douyin_meta.json', JSON.stringify(meta, null, 2));
++    console.log(`[cdp] 元信息：${meta.nickname} ｜ ${meta.type} ｜ ${meta.desc.slice(0, 40)}`);
++  } else {
++    console.log('[cdp] 没解析到元信息（详情 API 可能未返回）');
++  }
++
+   // ---- 3. 汇总候选 ----
+   const apiPicks = [];
+   for (const text of detailBodies) {
+diff --git a/scripts/get_video.sh b/scripts/get_video.sh
+index e5a89fa..d95a14b 100755
+--- a/scripts/get_video.sh
++++ b/scripts/get_video.sh
+@@ -36,7 +36,7 @@ for arg in "$@"; do
+     --wait=*) WAIT="${arg#*=}" ;;
+     --port=*) PORT="${arg#*=}" ;;
+     --help|-h) sed -n '2,12p' "$0"; exit 0 ;;
+-    -*) echo "未知参数：$arg（可用：--headed --headless --wait=秒 --port=N）" >&2; exit 2 ;;
++    -*) echo "未知参数：${arg}（可用：--headed --headless --wait=秒 --port=N）" >&2; exit 2 ;;
+     *) POSITIONAL+=("$arg") ;;
+   esac
+ done
+@@ -84,9 +84,9 @@ trap cleanup EXIT
+ 
+ # ---- 1. 准备浏览器 ----
+ if cdp_up; then
+-  echo "[1/4] 复用已在运行的 Chrome（端口 $PORT）"
++  echo "[1/4] 复用已在运行的 Chrome（端口 ${PORT}）"
+ else
+-  echo "[1/4] 启动 $MODE Chrome（端口 $PORT，profile: $PROFILE）..."
++  echo "[1/4] 启动 $MODE Chrome（端口 ${PORT}，profile: ${PROFILE}）..."
+   launch_chrome "$MODE" || { echo "Chrome 没能起来，日志：$CHROME_LOG" >&2; exit 1; }
+   STARTED_CHROME=1
+ fi
+diff --git a/scripts/login.sh b/scripts/login.sh
+index 54f2d48..490aaeb 100755
+--- a/scripts/login.sh
++++ b/scripts/login.sh
+@@ -22,7 +22,7 @@ cdp_up() { curl -sS --max-time 2 "http://127.0.0.1:$PORT/json/version" >/dev/nul
+ login_state() { node "$HERE/check_login.js" "$PORT" 2>/dev/null | head -1; }
+ 
+ if [ "$(login_state)" = "logged_in" ]; then
+-  echo "已是登录状态（profile: $PROFILE），无需重复扫码。"
++  echo "已是登录状态（profile: ${PROFILE}），无需重复扫码。"
+   node "$HERE/check_login.js" "$PORT" 2>/dev/null | tail -1
+   exit 0
+ fi
+diff --git a/setup.sh b/setup.sh
+index 6879671..009227a 100755
+--- a/setup.sh
++++ b/setup.sh
+@@ -20,7 +20,7 @@ fi
+ if [ -x "$CHROME" ]; then
+   echo "  ✓ Google Chrome $("$CHROME" --version 2>/dev/null | awk '{print $3}')"
+ else
+-  echo "  ✗ 找不到 Google Chrome（路径：$CHROME）"
++  echo "  ✗ 找不到 Google Chrome（路径：${CHROME}）"
+   echo "    Chrome 是抓取的核心：抖音对无 Cookie 的程序化请求启用 JS-VMP 反爬，"
+   echo "    必须借真实浏览器过风控。Safari / Chromium 不支持 CDP，请装 Chrome。"
+   fail=1
+@@ -31,11 +31,11 @@ echo
+ echo "== 创建虚拟环境 =="
+ if [ -x "$ROOT/.venv/bin/python" ]; then
+   CUR="$("$ROOT/.venv/bin/python" -V 2>&1 | awk '{print $2}')"
+-  echo "  已存在：$ROOT/.venv（python $CUR）"
++  echo "  已存在：$ROOT/.venv（python ${CUR}）"
+   echo "  想换解释器：rm -rf .venv 后重跑本脚本"
+ else
+   "$PY_BIN" -m venv "$ROOT/.venv"
+-  echo "  已创建：$ROOT/.venv（基于 $PY_BIN）"
++  echo "  已创建：$ROOT/.venv（基于 ${PY_BIN}）"
+ fi
+ 
+ echo
