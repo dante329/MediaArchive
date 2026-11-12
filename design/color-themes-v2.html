@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>配色方案 v2 · 强调差异</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;padding:34px 26px 70px;background:#eceef1;
+  font:14px/1.55 -apple-system,"PingFang SC","Helvetica Neue",sans-serif;color:#1f2329}
+h1{font-size:20px;margin:0 0 4px}
+.sub{color:#8b939d;font-size:12.5px;margin-bottom:26px}
+
+.theme{background:#fff;border:1px solid #e2e5e9;border-radius:16px;padding:20px;
+  margin-bottom:24px;box-shadow:0 1px 3px rgba(16,24,40,.05)}
+.thead{display:flex;align-items:baseline;gap:10px;margin-bottom:3px}
+.tname{font-size:15.5px;font-weight:700}
+.tsrc{font-size:11px;color:#8b939d;background:#f1f3f6;padding:2px 8px;border-radius:5px}
+.tdesc{font-size:12.5px;color:#8b939d;margin-bottom:15px}
+
+.demo{border-radius:12px;overflow:hidden;border:1px solid var(--line);
+  background:var(--bg);font-size:12px}
+.demo .top{display:flex;align-items:center;gap:10px;padding:12px 14px;
+  background:var(--card);border-bottom:1px solid var(--line)}
+.demo .statusbar{width:140px;height:30px;display:flex;align-items:center;justify-content:center;
+  gap:6px;border-radius:7px;background:var(--card);border:1px solid var(--line);
+  font-size:11px;color:var(--dim)}
+.demo .dot{width:7px;height:7px;border-radius:50%;background:var(--ok)}
+.demo .input{flex:1;height:30px;border-radius:7px;background:var(--input);
+  border:1px solid var(--line);display:flex;align-items:center;padding:0 11px;
+  color:var(--dim);font-size:11.5px}
+.demo .btn{width:30px;height:30px;border-radius:7px;background:var(--blue);
+  display:flex;align-items:center;justify-content:center;flex:none}
+.demo .btn svg{width:14px;height:14px;stroke:var(--btntxt);fill:none;stroke-width:2}
+.demo .btn2{width:30px;height:30px;border-radius:7px;background:var(--card);
+  border:1px solid var(--line);display:flex;align-items:center;justify-content:center;flex:none}
+.demo .btn2 svg{width:14px;height:14px;stroke:var(--dim);fill:none;stroke-width:2}
+
+.demo .body{display:flex;gap:12px;padding:14px}
+.demo .side{width:130px;flex:none;display:flex;flex-direction:column;gap:8px}
+.demo .panel{background:var(--card);border:1px solid var(--line);border-radius:9px;padding:9px}
+.demo .ptitle{font-size:10px;color:var(--dim);margin-bottom:6px;letter-spacing:.3px}
+.demo .chip{display:flex;align-items:center;justify-content:space-between;
+  padding:5px 7px;border-radius:6px;font-size:11px;color:var(--txt)}
+.demo .chip.on{background:var(--blue-l);color:var(--blue-d);font-weight:600}
+.demo .chip.pinned{background:var(--pinned);color:var(--txt);font-weight:600}
+.demo .chip b{color:var(--dim);font-weight:400;font-size:10px}
+
+.demo .cards{flex:1;display:flex;gap:10px;min-width:0}
+.demo .card{flex:1;background:var(--card);border:1px solid var(--line);
+  border-radius:9px;overflow:hidden}
+.demo .thumb{height:50px;background:linear-gradient(135deg,var(--thumbA),var(--thumbB))}
+.demo .cbody{padding:8px 9px}
+.demo .ctitle{font-size:11px;font-weight:600;color:var(--txt);line-height:1.35;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;height:2.7em}
+.demo .cauthor{font-size:10.5px;color:var(--blue);margin-top:5px}
+.demo .cmeta{font-size:10px;color:var(--dim);margin-top:3px}
+
+.swatches{display:flex;gap:6px;margin-top:13px;flex-wrap:wrap}
+.sw{display:flex;flex-direction:column;align-items:center;gap:3px}
+.sw i{width:44px;height:24px;border-radius:6px;border:1px solid rgba(0,0,0,.07);display:block}
+.sw span{font-size:9px;color:#8b939d;font-family:ui-monospace,monospace}
+</style>
+</head>
+<body>
+
+<h1>配色方案 v2</h1>
+<div class="sub">这次每套的主色色相都不同：橙 / 赭石 / 翡翠 / 玫红 / 紫罗兰 ｜ 深浅、冷暖、对比度都拉开</div>
+
+<!-- ===== 1 深空 ===== -->
+<div class="theme">
+  <div class="thead"><span class="tname">深空</span><span class="tsrc">深色 · 参考 Raycast</span></div>
+  <div class="tdesc">深灰底 + 暖橙。夜间首选，层次分明的暗色。</div>
+  <div class="demo" style="
+    --bg:#1c1c1e; --card:#262628; --input:#262628; --line:#35353a;
+    --txt:#f2f2f4; --dim:#8e8e93; --ok:#32d74b;
+    --blue:#ff8a3d; --blue-l:#3a2a1c; --blue-d:#ffb27a; --btntxt:#1c1c1e;
+    --pinned:#303033; --thumbA:#2e2e31; --thumbB:#3a3a3f;">
+    <div class="top">
+      <div class="statusbar"><span class="dot"></span>正常</div>
+      <div class="input">粘贴抖音 / 小红书 / B站 链接，回车归档</div>
+      <div class="btn"><svg viewBox="0 0 24 24"><path d="M12 3v12M7 11l5 5 5-5M5 21h14"/></svg></div>
+      <div class="btn2"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></div>
+    </div>
+    <div class="body">
+      <div class="side">
+        <div class="panel"><div class="ptitle">平台</div>
+          <div class="chip on"><span>全部</span><b>14</b></div>
+          <div class="chip"><span>抖音</span><b>9</b></div>
+          <div class="chip"><span>小红书</span><b>3</b></div>
+        </div>
+        <div class="panel"><div class="ptitle">博主</div>
+          <div class="chip pinned"><span>车观局</span><b>2</b></div>
+          <div class="chip"><span>PONYGO小马</span><b>2</b></div>
+        </div>
+      </div>
+      <div class="cards">
+        <div class="card"><div class="thumb"></div><div class="cbody">
+          <div class="ctitle">机构爱情故事之《国强来了》</div>
+          <div class="cauthor">当个好官</div><div class="cmeta">抖音 · 09-27</div></div></div>
+        <div class="card"><div class="thumb"></div><div class="cbody">
+          <div class="ctitle">Never Gonna Give You Up</div>
+          <div class="cauthor">索尼音乐中国</div><div class="cmeta">B站 · 01-01</div></div></div>
+      </div>
+    </div>
+  </div>
+  <div class="swatches">
+    <div class="sw"><i style="background:#1c1c1e"></i><span>bg</span></div>
+    <div class="sw"><i style="background:#262628"></i><span>card</span></div>
+    <div class="sw"><i style="background:#35353a"></i><span>line</span></div>
+    <div class="sw"><i style="background:#f2f2f4"></i><span>txt</span></div>
+    <div class="sw"><i style="background:#ff8a3d"></i><span>accent</span></div>
+    <div class="sw"><i style="background:#3a2a1c"></i><span>accent-l</span></div>
+  </div>
+</div>
+
+<!-- ===== 2 纸张 ===== -->
+<div class="theme">
+  <div class="thead"><span class="tname">纸张</span><span class="tsrc">暖色 · 参考 Bear / iA Writer</span></div>
+  <div class="tdesc">米黄底 + 赭石红。像牛皮纸笔记本，长时间阅读不累眼。</div>
+  <div class="demo" style="
+    --bg:#faf6ee; --card:#fffdf8; --input:#f4efe3; --line:#e6ddc9;
+    --txt:#3d2f1f; --dim:#8a7a63; --ok:#6a8a3f;
+    --blue:#b45309; --blue-l:#f7ead8; --blue-d:#8a3f07; --btntxt:#fffdf8;
+    --pinned:#f0e9da; --thumbA:#efe6d3; --thumbB:#e2d4ba;">
+    <div class="top">
+      <div class="statusbar"><span class="dot"></span>正常</div>
+      <div class="input">粘贴抖音 / 小红书 / B站 链接，回车归档</div>
+      <div class="btn"><svg viewBox="0 0 24 24"><path d="M12 3v12M7 11l5 5 5-5M5 21h14"/></svg></div>
+      <div class="btn2"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></div>
+    </div>
+    <div class="body">
+      <div class="side">
+        <div class="panel"><div class="ptitle">平台</div>
+          <div class="chip on"><span>全部</span><b>14</b></div>
+          <div class="chip"><span>抖音</span><b>9</b></div>
+          <div class="chip"><span>小红书</span><b>3</b></div>
+        </div>
+        <div class="panel"><div class="ptitle">博主</div>
+          <div class="chip pinned"><span>车观局</span><b>2</b></div>
+          <div class="chip"><span>PONYGO小马</span><b>2</b></div>
+        </div>
+      </div>
+      <div class="cards">
+        <div class="card"><div class="thumb"></div><div class="cbody">
+          <div class="ctitle">机构爱情故事之《国强来了》</div>
+          <div class="cauthor">当个好官</div><div class="cmeta">抖音 · 09-27</div></div></div>
+        <div class="card"><div class="thumb"></div><div class="cbody">
+          <div class="ctitle">Never Gonna Give You Up</div>
+          <div class="cauthor">索尼音乐中国</div><div class="cmeta">B站 · 01-01</div></div></div>
+      </div>
+    </div>
+  </div>
+  <div class="swatches">
+    <div class="sw"><i style="background:#faf6ee"></i><span>bg</span></div>
+    <div class="sw"><i style="background:#fffdf8"></i><span>card</span></div>
+    <div class="sw"><i style="background:#e6ddc9"></i><span>line</span></div>
+    <div class="sw"><i style="background:#3d2f1f"></i><span>txt</span></div>
+    <div class="sw"><i style="background:#b45309"></i><span>accent</span></div>
+    <div class="sw"><i style="background:#f7ead8"></i><span>accent-l</span></div>
+  </div>
+</div>
+
+<!-- ===== 3 翡翠 ===== -->
+<div class="theme">
+  <div class="thead"><span class="tname">翡翠</span><span class="tsrc">冷色 · 参考 GitHub 新主题 / shadcn</span></div>
+  <div class="tdesc">冷灰底 + 翡翠绿。清爽、有生机，和抖音小红书的暖色封面互补。</div>
+  <div class="demo" style="
+    --bg:#f2f6f5; --card:#ffffff; --input:#eaf0ee; --line:#d8e3e0;
+    --txt:#0f2a26; --dim:#5f7873; --ok:#0d9488;
+    --blue:#0d9488; --blue-l:#d9f0ec; --blue-d:#0a6f66; --btntxt:#ffffff;
+    --pinned:#e6eeec; --thumbA:#dfece9; --thumbB:#cfe0dc;">
+    <div class="top">
+      <div class="statusbar"><span class="dot"></span>正常</div>
+      <div class="input">粘贴抖音 / 小红书 / B站 链接，回车归档</div>
+      <div class="btn"><svg viewBox="0 0 24 24"><path d="M12 3v12M7 11l5 5 5-5M5 21h14"/></svg></div>
+      <div class="btn2"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></div>
+    </div>
+    <div class="body">
+      <div class="side">
+        <div class="panel"><div class="ptitle">平台</div>
+          <div class="chip on"><span>全部</span><b>14</b></div>
+          <div class="chip"><span>抖音</span><b>9</b></div>
+          <div class="chip"><span>小红书</span><b>3</b></div>
+        </div>
+        <div class="panel"><div class="ptitle">博主</div>
+          <div class="chip pinned"><span>车观局</span><b>2</b></div>
+          <div class="chip"><span>PONYGO小马</span><b>2</b></div>
+        </div>
+      </div>
+      <div class="cards">
+        <div class="card"><div class="thumb"></div><div class="cbody">
+          <div class="ctitle">机构爱情故事之《国强来了》</div>
+          <div class="cauthor">当个好官</div><div class="cmeta">抖音 · 09-27</div></div></div>
+        <div class="card"><div class="thumb"></div><div class="cbody">
+          <div class="ctitle">Never Gonna Give You Up</div>
+          <div class="cauthor">索尼音乐中国</div><div class="cmeta">B站 · 01-01</div></div></div>
+      </div>
+    </div>
+  </div>
+  <div class="swatches">
+    <div class="sw"><i style="background:#f2f6f5"></i><span>bg</span></div>
+    <div class="sw"><i style="background:#ffffff"></i><span>card</span></div>
+    <div class="sw"><i style="background:#d8e3e0"></i><span>line</span></div>
+    <div class="sw"><i style="background:#0f2a26"></i><span>txt</span></div>
+    <div class="sw"><i style="background:#0d9488"></i><span>accent</span></div>
+    <div class="sw"><i style="background:#d9f0ec"></i><span>accent-l</span></div>
+  </div>
+</div>
+
+<!-- ===== 4 玫红 ===== -->
+<div class="theme">
+  <div class="thead"><span class="tname">玫红</span><span class="tsrc">高对比 · 参考 Apple Sports / Arc</span></div>
+  <div class="tdesc">纯白 + 纯黑 + 玫红。最锐利的一套，适合喜欢强冲击力的人。</div>
+  <div class="demo" style="
+    --bg:#ffffff; --card:#ffffff; --input:#f5f5f7; --line:#e8e8ed;
+    --txt:#0a0a0a; --dim:#6e6e73; --ok:#34c759;
+    --blue:#e11d48; --blue-l:#ffe8ec; --blue-d:#be123c; --btntxt:#ffffff;
+    --pinned:#f2f2f5; --thumbA:#f0f0f2; --thumbB:#e4e4e8;">
+    <div class="top" style="border-bottom:2px solid var(--txt)">
+      <div class="statusbar" style="border-color:var(--txt)"><span class="dot"></span>正常</div>
+      <div class="input">粘贴抖音 / 小红书 / B站 链接，回车归档</div>
+      <div class="btn"><svg viewBox="0 0 24 24"><path d="M12 3v12M7 11l5 5 5-5M5 21h14"/></svg></div>
+      <div class="btn2" style="border-color:var(--txt)"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></div>
+    </div>
+    <div class="body">
+      <div class="side">
+        <div class="panel" style="border-color:var(--txt)"><div class="ptitle">平台</div>
+          <div class="chip on"><span>全部</span><b>14</b></div>
+          <div class="chip"><span>抖音</span><b>9</b></div>
+          <div class="chip"><span>小红书</span><b>3</b></div>
+        </div>
+        <div class="panel" style="border-color:var(--txt)"><div class="ptitle">博主</div>
+          <div class="chip pinned"><span>车观局</span><b>2</b></div>
+          <div class="chip"><span>PONYGO小马</span><b>2</b></div>
+        </div>
+      </div>
+      <div class="cards">
+        <div class="card" style="border-color:var(--txt)"><div class="thumb"></div><div class="cbody">
+          <div class="ctitle">机构爱情故事之《国强来了》</div>
+          <div class="cauthor">当个好官</div><div class="cmeta">抖音 · 09-27</div></div></div>
+        <div class="card" style="border-color:var(--txt)"><div class="thumb"></div><div class="cbody">
+          <div class="ctitle">Never Gonna Give You Up</div>
+          <div class="cauthor">索尼音乐中国</div><div class="cmeta">B站 · 01-01</div></div></div>
+      </div>
+    </div>
+  </div>
+  <div class="swatches">
+    <div class="sw"><i style="background:#ffffff"></i><span>bg</span></div>
+    <div class="sw"><i style="background:#f5f5f7"></i><span>input</span></div>
+    <div class="sw"><i style="background:#0a0a0a"></i><span>txt</span></div>
+    <div class="sw"><i style="background:#6e6e73"></i><span>dim</span></div>
+    <div class="sw"><i style="background:#e11d48"></i><span>accent</span></div>
+    <div class="sw"><i style="background:#ffe8ec"></i><span>accent-l</span></div>
+  </div>
+</div>
+
+<!-- ===== 5 紫罗兰 ===== -->
+<div class="theme">
+  <div class="thead"><span class="tname">紫罗兰</span><span class="tsrc">柔和 · 参考 Linear / Craft</span></div>
+  <div class="tdesc">淡紫底 + 深紫主色。高级感最强，但比第一版更明确的紫。</div>
+  <div class="demo" style="
+    --bg:#f7f5fc; --card:#ffffff; --input:#f0ecfa; --line:#e2dbf5;
+    --txt:#1e1533; --dim:#6f6489; --ok:#7c5cd6;
+    --blue:#7c3aed; --blue-l:#ece3fd; --blue-d:#5b21b6; --btntxt:#ffffff;
+    --pinned:#eee9f9; --thumbA:#e9e1fa; --thumbB:#dbd0f5;">
+    <div class="top">
+      <div class="statusbar"><span class="dot"></span>正常</div>
+      <div class="input">粘贴抖音 / 小红书 / B站 链接，回车归档</div>
+      <div class="btn"><svg viewBox="0 0 24 24"><path d="M12 3v12M7 11l5 5 5-5M5 21h14"/></svg></div>
+      <div class="btn2"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></div>
+    </div>
+    <div class="body">
+      <div class="side">
+        <div class="panel"><div class="ptitle">平台</div>
+          <div class="chip on"><span>全部</span><b>14</b></div>
+          <div class="chip"><span>抖音</span><b>9</b></div>
+          <div class="chip"><span>小红书</span><b>3</b></div>
+        </div>
+        <div class="panel"><div class="ptitle">博主</div>
+          <div class="chip pinned"><span>车观局</span><b>2</b></div>
+          <div class="chip"><span>PONYGO小马</span><b>2</b></div>
+        </div>
+      </div>
+      <div class="cards">
+        <div class="card"><div class="thumb"></div><div class="cbody">
+          <div class="ctitle">机构爱情故事之《国强来了》</div>
+          <div class="cauthor">当个好官</div><div class="cmeta">抖音 · 09-27</div></div></div>
+        <div class="card"><div class="thumb"></div><div class="cbody">
+          <div class="ctitle">Never Gonna Give You Up</div>
+          <div class="cauthor">索尼音乐中国</div><div class="cmeta">B站 · 01-01</div></div></div>
+      </div>
+    </div>
+  </div>
+  <div class="swatches">
+    <div class="sw"><i style="background:#f7f5fc"></i><span>bg</span></div>
+    <div class="sw"><i style="background:#ffffff"></i><span>card</span></div>
+    <div class="sw"><i style="background:#e2dbf5"></i><span>line</span></div>
+    <div class="sw"><i style="background:#1e1533"></i><span>txt</span></div>
+    <div class="sw"><i style="background:#7c3aed"></i><span>accent</span></div>
+    <div class="sw"><i style="background:#ece3fd"></i><span>accent-l</span></div>
+  </div>
+</div>
+
+<div style="text-align:center;color:#8b939d;font-size:12.5px;margin-top:26px">
+外加 <b>跟随系统</b>：系统切深色自动变「深空」
+</div>
+
+</body>
+</html>

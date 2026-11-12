@@ -1,102 +1,311 @@
-# media-archive · 媒体归档
+# 媒体归档 · MediaArchive
 
-一个 macOS 本地工具：**把抖音 / 小红书 / X / B站 / YouTube / Instagram / 微博 / Reddit / TikTok 的视频和图文存到本地，自动按「平台 / 博主 / 日期_标题」归档，并生成可搜索的索引表。**
+**把你收藏的短视频、图文、实况照片存到自己的硬盘上，按博主整理好。**
 
-不依赖任何在线解析服务，所有请求从你的机器直接发出；解析、下载、整理全在本地完成。
+一个 macOS 本地应用。粘贴一条链接，或者直接复制链接（自动监听剪贴板），它会从 20+ 个平台把内容抓下来、按「平台 / 博主 / 日期_标题」建好目录、写进索引表。支持批量导入抖音喜欢/收藏列表、博主主页作品、YouTube/B站播放列表。
 
-## 它能做什么
+所有解析和下载都从你自己的机器直接发出，不经过任何第三方服务。
 
-- **三处入口**：macOS App（窗口 + 全局快捷键）、本地 Web 页「http://127.0.0.1:8787」、命令行
-- **按博主自动分类**：`~/Media/Archive/抖音/杨超越/20210513_标题/video.mp4`
-- **索引表**：`index.db`（SQLite）+ `索引.csv`，记录平台/博主/账号/主页/作品ID/描述/发布时间/点赞评论收藏/文件路径
-- **图文与 Live Photo**：小红书的多图、Live Photo 会按 `01.jpg` + `01_live.mp4` 一一配对下载
-- **去水印**：抖音取详情接口里的播放直链；小红书取 CDN 原图（1080 档）
-- **自动代理**：探测本机 Clash / Surge 等常见端口，墙外站点自动走，国内直连
+---
+
+## 为什么需要它
+
+| 场景 | 问题 | 这个工具做什么 |
+|---|---|---|
+| 收藏夹越攒越多 | 平台内容会下架，博主会删号 | 抓成本地文件，永久保留 |
+| 关注了几十个博主 | 想看某个人的全部内容得一条条翻 | 按博主自动归档，一屏看全 |
+| 想批量备份喜欢列表 | 一个个复制链接太慢 | 一键读取抖音喜欢/收藏，勾选批量归档 |
+| 小红书的实况照片 | 右键保存只有一张静图 | 还原成真正的 Live Photo，可导入相册 |
+| 想找某个作品 | 翻收藏夹太累 | 标题/博主/链接搜索，秒级定位 |
+| 想训练/微调本地 AI | 缺少高质量中文多模态语料 | 归档即语料——视频、图文、元数据全部结构化存储在本地，可直接喂给本地大模型做 RAG、微调、数据分析 |
+
+---
+
+## 功能
+
+### 一、一键归档（20+ 个平台）
+
+抖音 · 小红书 · X · B站 · YouTube · Instagram · 微博 · Reddit · Telegram · TikTok · Threads · Niconico · Vimeo · Dailymotion · Streamable · Newgrounds · Tumblr · Pinterest · VK · OK.ru · Twitch · SoundCloud · Apple Podcasts · 微信公众号
+
+**四处入口，同一个内核：**
+
+```
+macOS App 窗口    → 粘贴链接 / 回车
+全局快捷键 ⌘】     → 任何 App 里按下，归档剪贴板
+复制链路自动监听   → 连快捷键都不用（可配置监听哪些平台）
+本地网页           → http://127.0.0.1:8787
+命令行             → python3 engine.py "链接"
+```
+
+**存下来的结构：**
+
+```
+~/Media/Archive/
+└── 抖音/
+    └── PONYGO小马/
+        └── 20261028_空城瓮伴奏@Kidd拍摄_a3f2k9/
+            ├── video.mp4          去水印原画质
+            ├── .poster.jpg        封面缩略图
+            ├── meta.json          原始元数据
+            └── 来源.txt           可读的来源说明
+```
+
+- **去水印**：抖音走详情接口拿播放直链，小红书取 1080 档 CDN 原图
+- **自动代理**：探测本机 Clash / Surge 端口，墙外站点自动走，国内直连
+- **重复检测**：已归档过的会提示「已存在」，不重复占空间
+- **目录防碰撞**：目录名末尾追加作品 ID 后缀，同标题不同作品不会互相覆盖
+
+### 二、批量归档
+
+不只是单条链接——支持整批导入：
+
+| 入口 | 说明 |
+|---|---|
+| **抖音喜欢** | 登录抖音后，一键读取全部喜欢列表 |
+| **抖音收藏** | 同上，读取收藏夹 |
+| **博主主页** | 粘贴博主主页链接，读取全部公开作品 |
+| **播放列表** | YouTube 频道/播放列表、B站合集/分P |
+| **批量链接** | 粘贴一整段分享文案，自动识别所有链接 |
+
+批量面板支持：搜索过滤、只看未归档、全选未归档、勾选后一键归档。
+
+### 三、实况照片完整还原
+
+小红书和 iPhone 的实况照片，在这个工具里有完整支持。
+
+**关键认知：Live Photo 不是一个文件格式。** 它是照片 App 里的一条记录，由一个图片资源 + 一个配对视频 + 共享的 UUID 组成。文件系统层面永远是 `01.jpg` + `01.mov` 两个文件。
+
+流程：
+
+```
+下载配对（01.jpg + 01_live.mp4）
+   ↓
+尺寸对齐（视频按图片尺寸重编码，强制 SAR=1:1）
+   ↓
+AVFoundation 封装（写入 mdta 元数据轨 + 双端 ContentIdentifier）
+   ↓
+PhotoKit 导入（PHAssetCreationRequest，photo + pairedVideo 同时添加）
+   ↓
+照片 App 里出现真正的实况照片
+```
+
+技术细节：`com.apple.quicktime.still-image-time` 必须是**独立元数据轨**，用 ffmpeg 的 `-metadata` 写只是文件级标签，照片 App 不认（会报 `PHPhotosErrorDomain error 3302`）。图片端的 `ContentIdentifier` 在 Apple MakerNote 里，小红书转码过的图常常没有这段结构，工具会自动注入骨架再写。
+
+### 四、音频提取
+
+按 `⌘E`，从当前打开的视频里把音轨单独拿出来：
+
+```bash
+ffmpeg -i video.mp4 -vn -c:a copy audio.m4a     # 无损，秒级完成
+```
+
+失败自动降级转 mp3。文件落在作品目录里。
+
+### 五、管理与检索
+
+- **搜索**：标题 / 博主 / 链接，支持模糊匹配
+- **筛选**：平台、博主（点卡片上的博主名直接跳转）、分类
+- **分类**：自建分类（收藏夹），把作品归入不同分类
+- **任务队列**：状态栏实时显示进度，点状态灯展开任务列表，每个任务可取消
+- **批量删除**：勾选 → 删除 → 进废纸篓（不是直接抹掉）
+- **清理失效记录**：一键清除数据库里文件已不存在的记录
+
+### 六、本地 AI 语料库
+
+归档不只是备份——它天然就是一个**结构化的多模态语料库**。
+
+每条归档作品在磁盘上的存储结构：
+
+```
+作品目录/
+├── video.mp4          原始视频/图片文件
+├── .poster.jpg        封面缩略图
+├── meta.json          完整元数据（标题、作者、发布时间、点赞/评论/收藏数、标签、原始链接…）
+└── 来源.txt           人类可读的来源说明
+```
+
+加上 SQLite 索引表里的结构化字段（平台、博主、博主 ID、作品 ID、时间戳、互动数据），你拥有的是一份：
+
+- **按博主/平台/时间维度组织**的中文互联网内容数据集
+- **视频 + 图文 + 元数据**的多模态配对数据
+- **完全离线、完全私有**——数据从未离开你的机器
+
+**可以直接用来做什么：**
+
+| 用途 | 怎么用 |
+|---|---|
+| **RAG 知识库** | 把 meta.json + 转录文本灌入向量数据库，用本地 LLM 做语义搜索和问答 |
+| **微调数据集** | 标题+描述+标签天然就是 instruction-output 对，可直接构造 SFT 数据 |
+| **内容分析** | SQL 查询互动数据趋势、博主产出频率、热门话题分布 |
+| **推荐系统原型** | 基于收藏行为 + 内容特征训练个性化推荐模型 |
+| **多模态训练** | 视频帧 + 标题 + 标签 = 图文对齐训练的现成数据 |
+
+所有数据都是标准格式（JSON + MP4/JPG + SQLite），不需要任何专有工具就能读取和处理。归档越多，语料越丰富——这是一个会随着使用自动增长的数据资产。
+
+### 七、原生窗口体验
+
+详情页是**真正的 macOS 窗口**，不是一个网页弹层：
+
+- `⌘W` 关闭、`⌘M` 最小化到 Dock、`⌃⌘F` 全屏
+- 可拖到屏幕任意位置，八向拖拽调整大小
+- 多个作品可以同时开多个窗口，各自独立播放
+- 关闭窗口会立即停止播放
+
+### 八、11 套主题
+
+默认 · 深夜 · 暮光 · 薄荷 · 拿铁 · 靛蓝 · 珊瑚 · 冰川 · 极光 · 石墨 · 跟随系统
+
+每套主题都有独立的配色方案，包括深色模式（深夜、暮光、极光、石墨）和浅色模式。石墨主题带有碳纤维编织纹理效果。
+
+---
+
+## 设计
+
+### 整体架构
+
+```
+┌─────────────────────────────────────────────────┐
+│  macOS App（Swift）                              │
+│  ├ 主窗口      WKWebView → 本地网页               │
+│  ├ 详情窗口    NSWindow × N（每个作品一个）        │
+│  ├ 设置窗口    SwiftUI 原生表单                   │
+│  └ 菜单栏      全局快捷键 / 归档 / 提取音频        │
+└────────────────┬────────────────────────────────┘
+                 │ JS 桥（WKScriptMessageHandler）
+                 │ + HTTP
+┌────────────────▼────────────────────────────────┐
+│  Python 服务  ThreadingHTTPServer :8787          │
+│  ├ engine.py      平台识别 / 解析 / 下载 / 归档    │
+│  ├ batch.py       批量列表抓取 / 登录态管理        │
+│  ├ livephoto.py   实况照片合成                    │
+│  └ server.py      REST API + 任务队列 + 文件服务   │
+└────────────────┬────────────────────────────────┘
+                 │
+┌────────────────▼────────────────────────────────┐
+│  数据层                                          │
+│  ├ ~/Media/Archive/  文件（人来读，Finder 能看）   │
+│  └ index.db          SQLite WAL（程序来查）       │
+└─────────────────────────────────────────────────┘
+```
+
+### 几个关键决策
+
+**1. 为什么不做成纯网页应用**
+
+浏览器的 div 做不到这些：拖出窗口外（会被裁剪）、最小化进 Dock、系统级快捷键、真正的全屏 Space。所以详情页用原生 `NSWindow` + `WKWebView` 组合——窗口归系统管，内容归网页管。
+
+**2. 为什么四个入口共用一个内核**
+
+App、网页、命令行都只是「调用方」，真正的逻辑全在 `engine.py`。加一个新平台只需要改一处，所有入口同时生效。App 的归档也走 HTTP API（而不是直接 `Process` 调脚本），这样网页的任务面板才能看到进度。
+
+**3. 为什么数据分两层**
+
+文件系统层是给人看的：目录结构清晰、文件名有意义、Finder 里能直接浏览，工具没了数据还在。SQLite 层是给程序查的：搜索、筛选、统计。
+
+**4. 抖音为什么要单独处理**
+
+抖音有 JS-VMP 反爬（`a_bogus` 签名），纯 HTTP 请求拿不到数据。方案是启动真实 Chrome（headless），用 DevTools Protocol 挂上去，读取页面自己发出的 `aweme/v1/web/aweme/detail/` 响应——让浏览器替我们算签名。其他平台用 yt-dlp 或直接解析页面数据。
+
+**5. 为什么实况照片要自己写封装**
+
+开源工具大多用 ffmpeg 的 `-metadata` 写标识，生成的文件在元数据上看是对的，但导入照片 App 会失败。真正合规必须用 AVFoundation 创建独立的 metadata track。这个差异只有实际导入相册才能发现，`exiftool` 两个都能读出来。
+
+### 技术栈
+
+| 层 | 技术 | 说明 |
+|---|---|---|
+| **App** | Swift + SwiftUI + AppKit | 窗口/菜单用 AppKit，设置表单用 SwiftUI |
+| **网页** | 原生 HTML/CSS/JS | 没有框架，单文件 ~4100 行 |
+| **容器** | WKWebView | 主窗口和详情窗口都靠它渲染 |
+| **桥接** | WKScriptMessageHandler | 网页 ↔ 原生双向通信 |
+| **服务** | Python 3 标准库 | `ThreadingHTTPServer`，零依赖 |
+| **解析** | Chrome DevTools Protocol / yt-dlp | 抖音用 CDP，其余用 yt-dlp |
+| **媒体** | ffmpeg | 转码、抽帧、抽音轨、尺寸对齐 |
+| **实况** | AVFoundation + exiftool + PhotoKit | 元数据轨、图片标识、相册写入 |
+| **存储** | SQLite WAL + 文件系统 | 索引与原始数据分离 |
+
+### 代码规模
+
+```
+server.py        1896 行   REST API 与任务队列
+web/index.html   4154 行   全部前端（单文件）
+app/main.swift   2127 行   原生 App
+engine.py        1203 行   平台解析 + 下载 + 归档
+tools/*.js        612 行   抖音 API / 浏览器兜底 / 列表抓取
+tools/*.swift     246 行   lpmake / OCR / 废纸篓 / 批量导入
+batch.py          345 行   批量列表 + 登录态
+livephoto.py      170 行   实况照片合成
+─────────────────────────
+约 10700 行
+```
+
+### 目录结构
+
+```
+media-archive/
+├── app/main.swift          原生 App（单文件）
+├── web/index.html          全部前端（单文件）
+├── engine.py               平台解析 + 下载 + 归档
+├── server.py               本地 HTTP 服务
+├── batch.py                批量列表抓取 + 登录态管理
+├── livephoto.py            实况照片合成
+├── tools/
+│   ├── douyin_api.js       抖音页面内 API（CDP）
+│   ├── fetch_list.js       通用列表抓取（小红书/X/IG/微博）
+│   ├── browser_media.js    浏览器兜底抓取
+│   ├── check_login_xhs.js  小红书登录态检查
+│   ├── lpmake.swift        AVFoundation 实况封装
+│   ├── ocr.swift           Vision OCR
+│   ├── lpimport.swift      批量导入相册
+│   └── trash.swift         移到废纸篓
+├── vendor/                 抖音下载器（git submodule）
+├── patches/                抖音抓取器的补丁
+├── design/                 设计稿 / 主题预览
+└── install.sh              一键安装
+```
+
+---
+
+## 已知限制
+
+| 限制 | 原因 |
+|---|---|
+| 抖音需要 Chrome + Node.js | 反爬签名必须由真实浏览器计算 |
+| 实况照片必须在照片 App 里才是「实况」 | 它本质是相册记录，不是文件格式 |
+| 微信公众号文章不支持 | 需要单独的解析器，暂未实现 |
+| 只支持 macOS | App 层用了大量 AppKit / PhotoKit / Vision 原生能力 |
+
+---
 
 ## 安装
 
 ```bash
-git clone https://github.com/<你的用户名>/media-archive.git
-cd media-archive
+git clone https://github.com/dante329/MediaArchive.git
+cd MediaArchive
 ./install.sh
 ```
 
-`install.sh` 会：检查 Chrome / Node / Python / swiftc → 缺什么用 Homebrew + pip 补上 → 拉取抖音抓取器并打补丁 → 生成配置 → 编译安装 App → 配置 Web 服务常驻。
+`install.sh` 会自动检查并补齐依赖：Chrome / Node / Python / Swift / ffmpeg / exiftool，拉取抖音抓取器并打补丁，生成配置，编译安装 App，注册 Web 服务常驻。
 
-装完：
+---
 
-```bash
-# 打开 App（窗口里有粘贴框、平台/博主筛选、视频预览）
-open /Applications/MediaArchive.app
+## 快捷键
 
-# 或用命令行
-python3 ~/bin/media-archive/engine.py "https://v.douyin.com/xxxxx/"
-
-# 或浏览器
-open http://127.0.0.1:8787
-```
-
-## 支持平台
-
-| 平台 | 手段 | 状态 |
+| 快捷键 | 作用 | 范围 |
 |---|---|---|
-| 抖音 | 真实 Chrome + DevTools 协议读详情接口直链（绕过 JS-VMP 反爬） | ✅ 1080p 无水印 + 博主信息 |
-| 小红书 | 短链展开 + 页面内嵌 `__INITIAL_STATE__` 解析（移动端 UA） | ✅ 多图 / Live Photo / 视频 |
-| B站 / YouTube / X / Instagram / 微博 / Reddit / TikTok | [yt-dlp](https://github.com/yt-dlp/yt-dlp) | ✅ 需 ffmpeg 合并音视频 |
-| 其它 1800+ 站点 | yt-dlp 通用兜底 | ✅ 尽力而为 |
-| Telegram | MTProto（Telethon，需自备 api_id/api_hash） | ⚠️ 需运行 `tg_setup.py` 配置 |
+| `⌘】` | 归档剪贴板 | 全局 |
+| `⇧⌘I` | 导入所有实况照片到相册 | App 内 |
+| `⌘I` | 提取当前窗口作品的实况照片 | App 内 |
+| `⌘E` | 提取当前窗口作品的音频 | App 内 |
+| `⌘O` | 打开主窗口 / 在 Finder 显示 | App 内 |
+| `⌘R` | 刷新页面 | App 内 |
+| `⌘,` | 设置 | App 内 |
+| `⌘W` `⌘M` `⌃⌘F` | 关闭 / 最小化 / 全屏 | 详情窗口 |
 
-## 设置
+全部可在设置里重新录制。
 
-App 里点「设置…」（或 `⌘,`）：
-
-- **存放位置**：任意目录，改后只影响新内容
-- **全局快捷键**：录制任意组合键（默认 `⌥⌘D`）
-- **自动监听剪贴板**：开启后复制白名单链接即自动归档
-- **Web 服务状态**：查看 / 重启
-
-配置文件 `~/.media-archive/config.json`：
-
-```json
-{
-  "archive_dir": "/Users/you/Media/Archive",
-  "hotkey": { "keyCode": 2, "modifiers": ["command", "option"], "display": "⌥⌘D" },
-  "auto_watch": false,
-  "web_port": 8787
-}
-```
-
-## 为什么不用「纯 HTTP 解析」
-
-2026 年实测：抖音对无 Cookie 的程序化请求启用 JS-VMP 反爬（`a_bogus` 签名），分享页 SSR 里的 `videoInfoRes` / `play_addr` 已被移除，老接口 `iteminfo` 返回 0 字节，yt-dlp 自带的 Douyin 提取器也因缺签名算法报 `Fresh cookies are needed`。
-
-所以抖音改成让**真实浏览器**自己去请求详情接口，我们通过 Chrome DevTools 协议把响应体读出来——不伪造签名，只旁观页面自己拿到的数据。
-
-小红书则是版本差异问题：桌面 UA 会被 302 到登录页，必须用移动端 UA；数据结构也从 `note.noteDetailMap` 迁移到 `noteData.data.noteData`。
-
-## 目录结构
-
-```
-media-archive/
-├── install.sh          # 一键安装
-├── engine.py           # 核心：平台识别 / 解析 / 下载 / 归档 / 索引
-├── server.py           # 本地 Web 服务（标准库，无第三方依赖）
-├── web/index.html      # Web 前端（单文件）
-├── app/main.swift      # macOS App（SwiftUI + AppKit + WebKit）
-├── patches/            # 给抖音抓取器打的补丁
-└── tg_setup.py         # Telegram MTProto 登录（可选）
-```
-
-## 依赖与致谢
-
-- [yt-dlp](https://github.com/yt-dlp/yt-dlp) — 通用站点解析引擎
-- [douyin-ai-video-downloader](https://github.com/Awake118/douyin-ai-video-downloader)（MIT）— 抖音 CDP 抓取，本项目在其上补充了元信息导出与 macOS bash 3.2 兼容修复
-- ffmpeg — 音视频合并
-
-## 免责声明
-
-仅供**个人学习、研究和个人内容备份**使用。下载他人作品请遵守各平台用户协议与著作权法，不得二次传播或商用。作者不对使用本工具产生的任何后果负责。
+---
 
 ## License
 
-MIT（本项目代码）。第三方组件遵循其自身许可证。
+MIT

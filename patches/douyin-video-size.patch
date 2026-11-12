@@ -1,0 +1,17 @@
+--- /tmp/capture_media_url.js.bak	2026-10-30 14:41:58
++++ vendor/douyin-ai-video-downloader/scripts/capture_media_url.js	2026-10-30 14:41:58
+@@ -272,6 +272,14 @@
+       type: (metaItem.images && metaItem.images.length) ? '图文' : '视频',
+       image_count: (metaItem.images || []).length,
+       statistics: metaItem.statistics || null,
++      // 视频的真实字节数 —— 用来算下载进度百分比
++      video: metaItem.video ? {
++        data_size: (metaItem.video.play_addr && metaItem.video.play_addr.data_size) || 0,
++        duration: metaItem.video.duration || 0,
++        width: metaItem.video.width || 0,
++        height: metaItem.video.height || 0,
++        bit_rates: Array.isArray(metaItem.video.bit_rate) ? metaItem.video.bit_rate.length : 0,
++      } : null,
+     };
+     fsMod.writeFileSync('/tmp/douyin_meta.json', JSON.stringify(meta, null, 2));
+     console.log(`[cdp] 元信息：${meta.nickname} ｜ ${meta.type} ｜ ${meta.desc.slice(0, 40)}`);

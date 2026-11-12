@@ -1,0 +1,669 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>配色方案预览 — media-archive</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;background:#f0f0f2;color:#1a1a1a;padding:32px 24px}
+h1{font-size:22px;font-weight:700;margin-bottom:6px}
+.subtitle{font-size:14px;color:#666;margin-bottom:32px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(380px,1fr));gap:24px}
+.scheme{border-radius:16px;overflow:hidden;border:1px solid #ddd;background:#fff;transition:transform .2s}
+.scheme:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,.1)}
+.scheme-head{padding:16px 20px;display:flex;align-items:center;justify-content:space-between}
+.scheme-name{font-size:15px;font-weight:700}
+.scheme-tag{font-size:11px;padding:2px 8px;border-radius:99px;font-weight:600}
+.tag-new{background:#e8f5e9;color:#2e7d32}
+.tag-existing{background:#e3f2fd;color:#1565c0}
+.tag-dark{background:#263238;color:#b0bec5}
+
+/* 模拟 UI */
+.mock{padding:0 20px 20px}
+.mock-bar{display:flex;align-items:center;gap:8px;padding:10px 14px;border-radius:10px;margin-bottom:12px;font-size:12px;font-weight:600}
+.mock-bar .dot{width:8px;height:8px;border-radius:50%;flex:none}
+.mock-input{flex:1;height:32px;border-radius:8px;border:1px solid;padding:0 10px;font-size:12px;outline:none}
+.mock-btn{height:32px;padding:0 14px;border-radius:8px;border:1px solid;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap}
+.mock-btn.primary{border:none}
+
+.mock-chips{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap}
+.mock-chip{padding:5px 12px;border-radius:8px;font-size:12px;cursor:pointer;border:1px solid transparent}
+.mock-chip.active{font-weight:600}
+
+.mock-cards{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
+.mock-card{border-radius:10px;overflow:hidden;border:1px solid}
+.mock-thumb{aspect-ratio:4/3;display:flex;align-items:center;justify-content:center;font-size:20px}
+.mock-card-body{padding:8px 10px}
+.mock-card-title{font-size:12px;font-weight:600;margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mock-card-meta{font-size:10.5px;display:flex;gap:6px}
+.mock-card-author{font-size:11px;margin-top:4px}
+
+.mock-sidebar{border-radius:10px;padding:12px 14px;margin-bottom:12px;border:1px solid}
+.mock-sidebar h4{font-size:11px;font-weight:600;letter-spacing:.4px;margin-bottom:8px;text-transform:uppercase}
+.mock-stat{font-size:12px;line-height:1.8}
+.mock-stat b{font-weight:600}
+
+.mock-statusbar{display:flex;align-items:center;justify-content:center;gap:8px;padding:8px 14px;border-radius:10px;border:1px solid;font-size:12px;font-weight:500}
+.mock-statusbar .dot{width:8px;height:8px;border-radius:50%;flex:none}
+
+/* ========== 方案 A: 石墨 Graphite ========== */
+.scheme-graphite .scheme-head{background:linear-gradient(135deg,#2a2d32,#36393f,#3d4148);color:#e8eaed}
+.scheme-graphite{--bg:#ecedf0;--card:#f8f8fa;--input:#e4e5e9;--line:#d0d2d8;--txt:#1a1c20;--dim:#6b6e76;--blue:#4a5568;--blue-l:#e2e4ea;--blue-d:#2d3748;--btntxt:#f8f8fa;--danger:#c53030;--danger-l:#fde8e8;--green:#48855c;--amber:#b7791f;--hover:rgba(26,28,32,.05);--shadow:0 1px 3px rgba(26,28,32,.08);--pinned:#dddee3;--thumbA:#d8dae0;--thumbB:#c8cad2}
+.scheme-graphite .mock-bar{background:var(--input);color:var(--txt);border-color:var(--line)}
+.scheme-graphite .mock-bar .dot{background:var(--green);box-shadow:0 0 0 3px rgba(52,199,89,.2)}
+.scheme-graphite .mock-input{background:var(--bg);border-color:var(--line);color:var(--txt)}
+.scheme-graphite .mock-btn{background:var(--card);border-color:var(--line);color:var(--txt)}
+.scheme-graphite .mock-btn.primary{background:var(--blue);color:var(--btntxt)}
+.scheme-graphite .mock-chip{background:transparent;color:var(--dim);border-color:var(--line)}
+.scheme-graphite .mock-chip.active{background:var(--blue-l);color:var(--blue-d);border-color:transparent}
+.scheme-graphite .mock-card{background:var(--card);border-color:var(--line)}
+.scheme-graphite .mock-thumb{background:linear-gradient(135deg,var(--thumbA),var(--thumbB))}
+.scheme-graphite .mock-card-title{color:var(--txt)}
+.scheme-graphite .mock-card-meta{color:var(--dim)}
+.scheme-graphite .mock-card-author{color:var(--blue)}
+.scheme-graphite .mock-sidebar{background:var(--card);border-color:var(--line)}
+.scheme-graphite .mock-sidebar h4{color:var(--dim)}
+.scheme-graphite .mock-stat{color:var(--dim)}
+.scheme-graphite .mock-stat b{color:var(--txt)}
+.scheme-graphite .mock-statusbar{background:var(--card);border-color:var(--line);color:var(--txt)}
+.scheme-graphite .mock-statusbar .dot{background:var(--green);box-shadow:0 0 0 3px rgba(52,199,89,.2)}
+.scheme-graphite .mock{background:var(--bg);border-radius:12px;padding:16px 20px 20px}
+
+/* ========== 方案 B: 暮光 Twilight ========== */
+.scheme-twilight .scheme-head{background:linear-gradient(135deg,#2d1b4e,#4a2040,#6b3a2a);color:#f0d8c8}
+.scheme-twilight{--bg:#1a1025;--card:#241535;--input:#241535;--line:#3a2548;--txt:#ede0d4;--dim:#8a7090;--blue:#e8956a;--blue-l:#3d2535;--blue-d:#f0b898;--btntxt:#1a1025;--danger:#e85d75;--danger-l:#3d1525;--green:#7ecba1;--amber:#f0c060;--hover:rgba(232,149,106,.06);--shadow:0 1px 4px rgba(0,0,0,.4);--pinned:#2e1d40;--thumbA:#2a1838;--thumbB:#352045}
+.scheme-twilight .mock-bar{background:var(--input);color:var(--txt);border-color:var(--line)}
+.scheme-twilight .mock-bar .dot{background:var(--green);box-shadow:0 0 0 3px rgba(126,203,161,.2)}
+.scheme-twilight .mock-input{background:var(--bg);border-color:var(--line);color:var(--txt)}
+.scheme-twilight .mock-btn{background:var(--card);border-color:var(--line);color:var(--txt)}
+.scheme-twilight .mock-btn.primary{background:linear-gradient(135deg,#e8956a,#d4785a);color:var(--btntxt);border:none}
+.scheme-twilight .mock-chip{background:transparent;color:var(--dim);border-color:var(--line)}
+.scheme-twilight .mock-chip.active{background:var(--blue-l);color:var(--blue-d);border-color:rgba(232,149,106,.2)}
+.scheme-twilight .mock-card{background:var(--card);border-color:var(--line)}
+.scheme-twilight .mock-thumb{background:linear-gradient(135deg,#2d1b4e,#3a2040,#4a2a30)}
+.scheme-twilight .mock-card-title{color:var(--txt)}
+.scheme-twilight .mock-card-meta{color:var(--dim)}
+.scheme-twilight .mock-card-author{color:var(--blue)}
+.scheme-twilight .mock-sidebar{background:var(--card);border-color:var(--line)}
+.scheme-twilight .mock-sidebar h4{color:var(--dim)}
+.scheme-twilight .mock-stat{color:var(--dim)}
+.scheme-twilight .mock-stat b{color:var(--txt)}
+.scheme-twilight .mock-statusbar{background:var(--card);border-color:var(--line);color:var(--txt)}
+.scheme-twilight .mock-statusbar .dot{background:var(--green);box-shadow:0 0 0 3px rgba(126,203,161,.2)}
+.scheme-twilight .mock{background:var(--bg);border-radius:12px;padding:16px 20px 20px}
+
+/* ========== 方案 C: 薄荷 Mint ========== */
+.scheme-mint .scheme-head{background:#ecfdf5;color:#064e3b}
+.scheme-mint{--bg:#f0fdf8;--card:#ffffff;--input:#ecfdf5;--line:#d1fae5;--txt:#0f2e23;--dim:#5f8a7a;--blue:#059669;--blue-l:#d1fae5;--blue-d:#047857;--btntxt:#ffffff;--danger:#ef4444;--danger-l:#fee2e2;--green:#10b981;--amber:#f59e0b;--hover:rgba(5,150,105,.04);--shadow:0 1px 3px rgba(5,150,105,.06);--pinned:#e6f7f0;--thumbA:#d5f0e5;--thumbB:#c0e8d8}
+.scheme-mint .mock-bar{background:var(--input);color:var(--txt);border-color:var(--line)}
+.scheme-mint .mock-bar .dot{background:var(--green);box-shadow:0 0 0 3px rgba(16,185,129,.2)}
+.scheme-mint .mock-input{background:var(--bg);border-color:var(--line);color:var(--txt)}
+.scheme-mint .mock-btn{background:var(--card);border-color:var(--line);color:var(--txt)}
+.scheme-mint .mock-btn.primary{background:var(--blue);color:var(--btntxt)}
+.scheme-mint .mock-chip{background:transparent;color:var(--dim);border-color:var(--line)}
+.scheme-mint .mock-chip.active{background:var(--blue-l);color:var(--blue-d);border-color:transparent}
+.scheme-mint .mock-card{background:var(--card);border-color:var(--line)}
+.scheme-mint .mock-thumb{background:linear-gradient(135deg,var(--thumbA),var(--thumbB))}
+.scheme-mint .mock-card-title{color:var(--txt)}
+.scheme-mint .mock-card-meta{color:var(--dim)}
+.scheme-mint .mock-card-author{color:var(--blue)}
+.scheme-mint .mock-sidebar{background:var(--card);border-color:var(--line)}
+.scheme-mint .mock-sidebar h4{color:var(--dim)}
+.scheme-mint .mock-stat{color:var(--dim)}
+.scheme-mint .mock-stat b{color:var(--txt)}
+.scheme-mint .mock-statusbar{background:var(--card);border-color:var(--line);color:var(--txt)}
+.scheme-mint .mock-statusbar .dot{background:var(--green);box-shadow:0 0 0 3px rgba(16,185,129,.2)}
+.scheme-mint .mock{background:var(--bg);border-radius:12px;padding:16px 20px 20px}
+
+/* ========== 方案 D: 拿铁 Latte ========== */
+.scheme-latte .scheme-head{background:linear-gradient(135deg,#2c1810,#3e2218,#4a2c1a);color:#faf3eb}
+.scheme-latte{--bg:#faf6f1;--card:#ffffff;--input:#f5efe8;--line:#e8ddd0;--txt:#3b2d20;--dim:#8c7a68;--blue:#c2703e;--blue-l:#f5e6d8;--blue-d:#9a5528;--btntxt:#ffffff;--danger:#c0392b;--danger-l:#fbeae7;--green:#6a8a3f;--amber:#d4930a;--hover:rgba(60,45,32,.04);--shadow:0 1px 3px rgba(60,45,32,.06);--pinned:#f0e8dc;--thumbA:#ede3d5;--thumbB:#e0d2c0}
+.scheme-latte .mock-bar{background:var(--input);color:var(--txt);border-color:var(--line)}
+.scheme-latte .mock-bar .dot{background:var(--green);box-shadow:0 0 0 3px rgba(106,138,63,.2)}
+.scheme-latte .mock-input{background:var(--bg);border-color:var(--line);color:var(--txt)}
+.scheme-latte .mock-btn{background:var(--card);border-color:var(--line);color:var(--txt)}
+.scheme-latte .mock-btn.primary{background:var(--blue);color:var(--btntxt)}
+.scheme-latte .mock-chip{background:transparent;color:var(--dim);border-color:var(--line)}
+.scheme-latte .mock-chip.active{background:var(--blue-l);color:var(--blue-d);border-color:transparent}
+.scheme-latte .mock-card{background:var(--card);border-color:var(--line)}
+.scheme-latte .mock-thumb{background:linear-gradient(135deg,var(--thumbA),var(--thumbB))}
+.scheme-latte .mock-card-title{color:var(--txt)}
+.scheme-latte .mock-card-meta{color:var(--dim)}
+.scheme-latte .mock-card-author{color:var(--blue)}
+.scheme-latte .mock-sidebar{background:var(--card);border-color:var(--line)}
+.scheme-latte .mock-sidebar h4{color:var(--dim)}
+.scheme-latte .mock-stat{color:var(--dim)}
+.scheme-latte .mock-stat b{color:var(--txt)}
+.scheme-latte .mock-statusbar{background:var(--card);border-color:var(--line);color:var(--txt)}
+.scheme-latte .mock-statusbar .dot{background:var(--green);box-shadow:0 0 0 3px rgba(106,138,63,.2)}
+.scheme-latte .mock{background:var(--bg);border-radius:12px;padding:16px 20px 20px}
+
+/* ========== 方案 E: 靛蓝 Indigo ========== */
+.scheme-indigo .scheme-head{background:linear-gradient(135deg,#312e81,#3730a3);color:#e0e7ff}
+.scheme-indigo{--bg:#f5f5ff;--card:#ffffff;--input:#eef0ff;--line:#dde0f5;--txt:#1e1b4b;--dim:#6366a0;--blue:#4f46e5;--blue-l:#e0e7ff;--blue-d:#3730a3;--btntxt:#ffffff;--danger:#ef4444;--danger-l:#fee2e2;--green:#22c55e;--amber:#f59e0b;--hover:rgba(79,70,229,.04);--shadow:0 1px 3px rgba(79,70,229,.06);--pinned:#e8e8f8;--thumbA:#e0e0f5;--thumbB:#d0d0ee}
+.scheme-indigo .mock-bar{background:var(--input);color:var(--txt);border-color:var(--line)}
+.scheme-indigo .mock-bar .dot{background:var(--green);box-shadow:0 0 0 3px rgba(34,197,94,.2)}
+.scheme-indigo .mock-input{background:var(--bg);border-color:var(--line);color:var(--txt)}
+.scheme-indigo .mock-btn{background:var(--card);border-color:var(--line);color:var(--txt)}
+.scheme-indigo .mock-btn.primary{background:var(--blue);color:var(--btntxt)}
+.scheme-indigo .mock-chip{background:transparent;color:var(--dim);border-color:var(--line)}
+.scheme-indigo .mock-chip.active{background:var(--blue-l);color:var(--blue-d);border-color:transparent}
+.scheme-indigo .mock-card{background:var(--card);border-color:var(--line)}
+.scheme-indigo .mock-thumb{background:linear-gradient(135deg,var(--thumbA),var(--thumbB))}
+.scheme-indigo .mock-card-title{color:var(--txt)}
+.scheme-indigo .mock-card-meta{color:var(--dim)}
+.scheme-indigo .mock-card-author{color:var(--blue)}
+.scheme-indigo .mock-sidebar{background:var(--card);border-color:var(--line)}
+.scheme-indigo .mock-sidebar h4{color:var(--dim)}
+.scheme-indigo .mock-stat{color:var(--dim)}
+.scheme-indigo .mock-stat b{color:var(--txt)}
+.scheme-indigo .mock-statusbar{background:var(--card);border-color:var(--line);color:var(--txt)}
+.scheme-indigo .mock-statusbar .dot{background:var(--green);box-shadow:0 0 0 3px rgba(34,197,94,.2)}
+.scheme-indigo .mock{background:var(--bg);border-radius:12px;padding:16px 20px 20px}
+
+/* ========== 方案 F: 炭黑 Charcoal (深色) ========== */
+.scheme-charcoal .scheme-head{background:#111113;color:#e5e5e7}
+.scheme-charcoal{--bg:#111113;--card:#1c1c1f;--input:#1c1c1f;--line:#2c2c30;--txt:#e5e5e7;--dim:#71717a;--blue:#3b82f6;--blue-l:#172554;--blue-d:#93c5fd;--btntxt:#ffffff;--danger:#f87171;--danger-l:#2d1515;--green:#4ade80;--amber:#fbbf24;--hover:rgba(255,255,255,.04);--shadow:0 1px 3px rgba(0,0,0,.5);--pinned:#222225;--thumbA:#1e1e22;--thumbB:#28282e}
+.scheme-charcoal .mock-bar{background:var(--input);color:var(--txt);border-color:var(--line)}
+.scheme-charcoal .mock-bar .dot{background:var(--green);box-shadow:0 0 0 3px rgba(74,222,128,.2)}
+.scheme-charcoal .mock-input{background:var(--bg);border-color:var(--line);color:var(--txt)}
+.scheme-charcoal .mock-btn{background:var(--card);border-color:var(--line);color:var(--txt)}
+.scheme-charcoal .mock-btn.primary{background:var(--blue);color:var(--btntxt)}
+.scheme-charcoal .mock-chip{background:transparent;color:var(--dim);border-color:var(--line)}
+.scheme-charcoal .mock-chip.active{background:var(--blue-l);color:var(--blue-d);border-color:transparent}
+.scheme-charcoal .mock-card{background:var(--card);border-color:var(--line)}
+.scheme-charcoal .mock-thumb{background:linear-gradient(135deg,var(--thumbA),var(--thumbB))}
+.scheme-charcoal .mock-card-title{color:var(--txt)}
+.scheme-charcoal .mock-card-meta{color:var(--dim)}
+.scheme-charcoal .mock-card-author{color:var(--blue)}
+.scheme-charcoal .mock-sidebar{background:var(--card);border-color:var(--line)}
+.scheme-charcoal .mock-sidebar h4{color:var(--dim)}
+.scheme-charcoal .mock-stat{color:var(--dim)}
+.scheme-charcoal .mock-stat b{color:var(--txt)}
+.scheme-charcoal .mock-statusbar{background:var(--card);border-color:var(--line);color:var(--txt)}
+.scheme-charcoal .mock-statusbar .dot{background:var(--green);box-shadow:0 0 0 3px rgba(74,222,128,.2)}
+.scheme-charcoal .mock{background:var(--bg);border-radius:12px;padding:16px 20px 20px}
+
+/* ========== 方案 G: 珊瑚 Coral ========== */
+.scheme-coral .scheme-head{background:linear-gradient(135deg,#ff6b6b,#ee5a24);color:#fff}
+.scheme-coral{--bg:#fff8f6;--card:#ffffff;--input:#fff0ec;--line:#fdd;--txt:#2d1f1a;--dim:#8c6b5f;--blue:#e8553a;--blue-l:#ffe8e2;--blue-d:#c0392b;--btntxt:#ffffff;--danger:#dc2626;--danger-l:#fee2e2;--green:#16a34a;--amber:#ea580c;--hover:rgba(232,85,58,.04);--shadow:0 1px 3px rgba(232,85,58,.06);--pinned:#fff0ec;--thumbA:#ffe8e2;--thumbB:#ffd6cc}
+.scheme-coral .mock-bar{background:var(--input);color:var(--txt);border-color:var(--line)}
+.scheme-coral .mock-bar .dot{background:var(--green);box-shadow:0 0 0 3px rgba(22,163,74,.2)}
+.scheme-coral .mock-input{background:var(--bg);border-color:var(--line);color:var(--txt)}
+.scheme-coral .mock-btn{background:var(--card);border-color:var(--line);color:var(--txt)}
+.scheme-coral .mock-btn.primary{background:var(--blue);color:var(--btntxt)}
+.scheme-coral .mock-chip{background:transparent;color:var(--dim);border-color:var(--line)}
+.scheme-coral .mock-chip.active{background:var(--blue-l);color:var(--blue-d);border-color:transparent}
+.scheme-coral .mock-card{background:var(--card);border-color:var(--line)}
+.scheme-coral .mock-thumb{background:linear-gradient(135deg,var(--thumbA),var(--thumbB))}
+.scheme-coral .mock-card-title{color:var(--txt)}
+.scheme-coral .mock-card-meta{color:var(--dim)}
+.scheme-coral .mock-card-author{color:var(--blue)}
+.scheme-coral .mock-sidebar{background:var(--card);border-color:var(--line)}
+.scheme-coral .mock-sidebar h4{color:var(--dim)}
+.scheme-coral .mock-stat{color:var(--dim)}
+.scheme-coral .mock-stat b{color:var(--txt)}
+.scheme-coral .mock-statusbar{background:var(--card);border-color:var(--line);color:var(--txt)}
+.scheme-coral .mock-statusbar .dot{background:var(--green);box-shadow:0 0 0 3px rgba(22,163,74,.2)}
+.scheme-coral .mock{background:var(--bg);border-radius:12px;padding:16px 20px 20px}
+
+/* ========== 方案 H: 冰川 Glacier ========== */
+.scheme-glacier .scheme-head{background:linear-gradient(135deg,#0ea5e9,#0284c7);color:#f0f9ff}
+.scheme-glacier{--bg:#f0f9ff;--card:#ffffff;--input:#e0f2fe;--line:#bae6fd;--txt:#0c2d48;--dim:#5b8aa5;--blue:#0284c7;--blue-l:#e0f2fe;--blue-d:#0369a1;--btntxt:#ffffff;--danger:#ef4444;--danger-l:#fee2e2;--green:#10b981;--amber:#f59e0b;--hover:rgba(2,132,199,.04);--shadow:0 1px 3px rgba(2,132,199,.06);--pinned:#e0f0fa;--thumbA:#d5eef8;--thumbB:#c0e4f2}
+.scheme-glacier .mock-bar{background:var(--input);color:var(--txt);border-color:var(--line)}
+.scheme-glacier .mock-bar .dot{background:var(--green);box-shadow:0 0 0 3px rgba(16,185,129,.2)}
+.scheme-glacier .mock-input{background:var(--bg);border-color:var(--line);color:var(--txt)}
+.scheme-glacier .mock-btn{background:var(--card);border-color:var(--line);color:var(--txt)}
+.scheme-glacier .mock-btn.primary{background:var(--blue);color:var(--btntxt)}
+.scheme-glacier .mock-chip{background:transparent;color:var(--dim);border-color:var(--line)}
+.scheme-glacier .mock-chip.active{background:var(--blue-l);color:var(--blue-d);border-color:transparent}
+.scheme-glacier .mock-card{background:var(--card);border-color:var(--line)}
+.scheme-glacier .mock-thumb{background:linear-gradient(135deg,var(--thumbA),var(--thumbB))}
+.scheme-glacier .mock-card-title{color:var(--txt)}
+.scheme-glacier .mock-card-meta{color:var(--dim)}
+.scheme-glacier .mock-card-author{color:var(--blue)}
+.scheme-glacier .mock-sidebar{background:var(--card);border-color:var(--line)}
+.scheme-glacier .mock-sidebar h4{color:var(--dim)}
+.scheme-glacier .mock-stat{color:var(--dim)}
+.scheme-glacier .mock-stat b{color:var(--txt)}
+.scheme-glacier .mock-statusbar{background:var(--card);border-color:var(--line);color:var(--txt)}
+.scheme-glacier .mock-statusbar .dot{background:var(--green);box-shadow:0 0 0 3px rgba(16,185,129,.2)}
+.scheme-glacier .mock{background:var(--bg);border-radius:12px;padding:16px 20px 20px}
+
+/* ========== 方案 I: 极光 Aurora ========== */
+.scheme-aurora .scheme-head{background:linear-gradient(135deg,#0f172a,#1e3a5f,#0d4f3c);color:#e0f7fa}
+.scheme-aurora{--bg:#0c1220;--card:#131b2e;--input:#131b2e;--line:#1e2d45;--txt:#e0ecf4;--dim:#5a7a94;--blue:#2dd4a8;--blue-l:#0d2e28;--blue-d:#6ee7c0;--btntxt:#0c1220;--danger:#f87171;--danger-l:#2d1520;--green:#34d399;--amber:#fbbf24;--hover:rgba(45,212,168,.06);--shadow:0 1px 4px rgba(0,0,0,.45);--pinned:#162035;--thumbA:#152030;--thumbB:#1a2840}
+.scheme-aurora .mock-bar{background:var(--input);color:var(--txt);border-color:var(--line)}
+.scheme-aurora .mock-bar .dot{background:var(--green);box-shadow:0 0 0 3px rgba(52,211,153,.25),0 0 8px rgba(52,211,153,.15)}
+.scheme-aurora .mock-input{background:var(--bg);border-color:var(--line);color:var(--txt)}
+.scheme-aurora .mock-btn{background:var(--card);border-color:var(--line);color:var(--txt)}
+.scheme-aurora .mock-btn.primary{background:linear-gradient(135deg,#2dd4a8,#22d3ee);color:var(--btntxt);border:none}
+.scheme-aurora .mock-chip{background:transparent;color:var(--dim);border-color:var(--line)}
+.scheme-aurora .mock-chip.active{background:var(--blue-l);color:var(--blue-d);border-color:rgba(45,212,168,.2)}
+.scheme-aurora .mock-card{background:var(--card);border-color:var(--line)}
+.scheme-aurora .mock-thumb{background:linear-gradient(135deg,#0d2e28,#131b2e,#1a1040)}
+.scheme-aurora .mock-card-title{color:var(--txt)}
+.scheme-aurora .mock-card-meta{color:var(--dim)}
+.scheme-aurora .mock-card-author{color:var(--blue)}
+.scheme-aurora .mock-sidebar{background:var(--card);border-color:var(--line)}
+.scheme-aurora .mock-sidebar h4{color:var(--dim)}
+.scheme-aurora .mock-stat{color:var(--dim)}
+.scheme-aurora .mock-stat b{color:var(--txt)}
+.scheme-aurora .mock-statusbar{background:var(--card);border-color:var(--line);color:var(--txt)}
+.scheme-aurora .mock-statusbar .dot{background:var(--green);box-shadow:0 0 0 3px rgba(52,211,153,.25),0 0 8px rgba(52,211,153,.15)}
+.scheme-aurora .mock{background:var(--bg);border-radius:12px;padding:16px 20px 20px}
+
+/* ========== 方案 J: 碳纤维 Carbon ========== */
+/* 真实碳纤维编织纹理：SVG 棋盘格交错方块 + 对角线光泽高光 */
+.scheme-carbon .scheme-head{
+  color:#c8c8c8;
+  background-color:#080808;
+  background-image:
+    url("data:image/svg+xml,%3Csvg width='6' height='6' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='3' height='3' fill='%23111'/%3E%3Crect x='3' y='3' width='3' height='3' fill='%23111'/%3E%3Crect x='3' width='3' height='3' fill='%230a0a0a'/%3E%3Crect y='3' width='3' height='3' fill='%230a0a0a'/%3E%3C/svg%3E"),
+    linear-gradient(135deg,rgba(255,255,255,.045) 0%,transparent 50%,rgba(255,255,255,.02) 100%);
+  background-size:6px 6px,100% 100%}
+.scheme-carbon{
+  --bg:#0c0c0e;--card:#141416;--input:#141416;--line:#222226;
+  --txt:#d4d4d8;--dim:#5c5c63;--blue:#e0e0e0;--blue-l:#1a1a1e;--blue-d:#ffffff;
+  --btntxt:#080808;--danger:#ef4444;--danger-l:#2a1215;--green:#22c55e;--amber:#eab308;
+  --hover:rgba(255,255,255,.04);--shadow:0 1px 4px rgba(0,0,0,.6);
+  --pinned:#18181c;--thumbA:#101012;--thumbB:#18181c;
+  --cf:url("data:image/svg+xml,%3Csvg width='6' height='6' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='3' height='3' fill='%23111'/%3E%3Crect x='3' y='3' width='3' height='3' fill='%23111'/%3E%3Crect x='3' width='3' height='3' fill='%230a0a0a'/%3E%3Crect y='3' width='3' height='3' fill='%230a0a0a'/%3E%3C/svg%3E")}
+.scheme-carbon .mock-bar{background-color:var(--input);color:var(--txt);border-color:var(--line);background-image:var(--cf);background-size:6px 6px}
+.scheme-carbon .mock-bar .dot{background:var(--green);box-shadow:0 0 0 3px rgba(34,197,94,.2)}
+.scheme-carbon .mock-input{background:var(--bg);border-color:var(--line);color:var(--txt)}
+.scheme-carbon .mock-btn{background-color:var(--card);border-color:var(--line);color:var(--txt);background-image:var(--cf);background-size:6px 6px}
+.scheme-carbon .mock-btn.primary{background:linear-gradient(135deg,#d4d4d8,#a1a1aa);color:var(--btntxt);border:none;font-weight:700;background-image:none}
+.scheme-carbon .mock-chip{background:transparent;color:var(--dim);border-color:var(--line)}
+.scheme-carbon .mock-chip.active{background-color:var(--blue-l);color:var(--blue-d);border-color:rgba(255,255,255,.08);background-image:var(--cf);background-size:6px 6px}
+.scheme-carbon .mock-card{background-color:var(--card);border-color:var(--line);background-image:var(--cf);background-size:6px 6px}
+.scheme-carbon .mock-thumb{
+  background-color:#0a0a0c;
+  background-image:
+    url("data:image/svg+xml,%3Csvg width='6' height='6' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='3' height='3' fill='%23131315'/%3E%3Crect x='3' y='3' width='3' height='3' fill='%23131315'/%3E%3Crect x='3' width='3' height='3' fill='%230c0c0e'/%3E%3Crect y='3' width='3' height='3' fill='%230c0c0e'/%3E%3C/svg%3E"),
+    linear-gradient(135deg,rgba(255,255,255,.06) 0%,transparent 40%,rgba(255,255,255,.025) 100%);
+  background-size:6px 6px,100% 100%}
+.scheme-carbon .mock-card-title{color:var(--txt)}
+.scheme-carbon .mock-card-meta{color:var(--dim)}
+.scheme-carbon .mock-card-author{color:#a1a1aa}
+.scheme-carbon .mock-sidebar{background-color:var(--card);border-color:var(--line);background-image:var(--cf);background-size:6px 6px}
+.scheme-carbon .mock-sidebar h4{color:var(--dim)}
+.scheme-carbon .mock-stat{color:var(--dim)}
+.scheme-carbon .mock-stat b{color:var(--txt)}
+.scheme-carbon .mock-statusbar{background-color:var(--card);border-color:var(--line);color:var(--txt);background-image:var(--cf);background-size:6px 6px}
+.scheme-carbon .mock-statusbar .dot{background:var(--green);box-shadow:0 0 0 3px rgba(34,197,94,.2)}
+.scheme-carbon .mock{
+  background-color:var(--bg);border-radius:12px;padding:16px 20px 20px;
+  background-image:
+    var(--cf),
+    linear-gradient(135deg,rgba(255,255,255,.03) 0%,transparent 50%,rgba(255,255,255,.015) 100%);
+  background-size:6px 6px,100% 100%}
+</style>
+</head>
+<body>
+
+<h1>🎨 media-archive 配色方案预览</h1>
+<p class="subtitle">共 8 套方案（含 2 套深色），每套模拟了搜索栏、标签、卡片、侧栏、状态栏等核心 UI 元素。点击方案名可复制 CSS 变量。</p>
+
+<div class="grid">
+
+<!-- A: 石墨 -->
+<div class="scheme scheme-graphite" onclick="copyVars('graphite')">
+  <div class="scheme-head">
+    <span class="scheme-name">A · 石墨 Graphite</span>
+    <span class="scheme-tag tag-new">NEW</span>
+  </div>
+  <div class="mock">
+    <div class="mock-bar">
+      <span class="dot"></span>
+      <span>正常</span>
+      <input class="mock-input" placeholder="粘贴链接开始归档…" readonly>
+      <button class="mock-btn primary">归档</button>
+    </div>
+    <div class="mock-chips">
+      <span class="mock-chip active">全部 127</span>
+      <span class="mock-chip">抖音 89</span>
+      <span class="mock-chip">小红书 23</span>
+      <span class="mock-chip">B站 15</span>
+    </div>
+    <div class="mock-cards">
+      <div class="mock-card"><div class="mock-thumb">🎬</div><div class="mock-card-body"><div class="mock-card-title">三分钟学会 Python 装饰器</div><div class="mock-card-meta"><span>视频</span><span>2天前</span></div><div class="mock-card-author">代码随想录</div></div></div>
+      <div class="mock-card"><div class="mock-thumb">📸</div><div class="mock-card-body"><div class="mock-card-title">周末探店｜藏在巷子里的咖啡</div><div class="mock-card-meta"><span>图文</span><span>5天前</span></div><div class="mock-card-author">城市漫步者</div></div></div>
+    </div>
+    <div class="mock-sidebar">
+      <h4>统计</h4>
+      <div class="mock-stat">总计 <b>127</b> 条作品<br>占用空间 <b>4.2 GB</b></div>
+    </div>
+    <div class="mock-statusbar"><span class="dot"></span>正常</div>
+  </div>
+</div>
+
+<!-- B: 暮光 -->
+<div class="scheme scheme-twilight" onclick="copyVars('twilight')">
+  <div class="scheme-head">
+    <span class="scheme-name">B · 暮光 Twilight</span>
+    <span class="scheme-tag tag-dark">DARK</span>
+  </div>
+  <div class="mock">
+    <div class="mock-bar">
+      <span class="dot"></span>
+      <span>正常</span>
+      <input class="mock-input" placeholder="粘贴链接开始归档…" readonly>
+      <button class="mock-btn primary">归档</button>
+    </div>
+    <div class="mock-chips">
+      <span class="mock-chip active">全部 127</span>
+      <span class="mock-chip">抖音 89</span>
+      <span class="mock-chip">小红书 23</span>
+      <span class="mock-chip">B站 15</span>
+    </div>
+    <div class="mock-cards">
+      <div class="mock-card"><div class="mock-thumb">🎬</div><div class="mock-card-body"><div class="mock-card-title">三分钟学会 Python 装饰器</div><div class="mock-card-meta"><span>视频</span><span>2天前</span></div><div class="mock-card-author">代码随想录</div></div></div>
+      <div class="mock-card"><div class="mock-thumb">📸</div><div class="mock-card-body"><div class="mock-card-title">周末探店｜藏在巷子里的咖啡</div><div class="mock-card-meta"><span>图文</span><span>5天前</span></div><div class="mock-card-author">城市漫步者</div></div></div>
+    </div>
+    <div class="mock-sidebar">
+      <h4>统计</h4>
+      <div class="mock-stat">总计 <b>127</b> 条作品<br>占用空间 <b>4.2 GB</b></div>
+    </div>
+    <div class="mock-statusbar"><span class="dot"></span>正常</div>
+  </div>
+</div>
+
+<!-- C: 薄荷 -->
+<div class="scheme scheme-mint" onclick="copyVars('mint')">
+  <div class="scheme-head">
+    <span class="scheme-name">C · 薄荷 Mint</span>
+    <span class="scheme-tag tag-new">NEW</span>
+  </div>
+  <div class="mock">
+    <div class="mock-bar">
+      <span class="dot"></span>
+      <span>正常</span>
+      <input class="mock-input" placeholder="粘贴链接开始归档…" readonly>
+      <button class="mock-btn primary">归档</button>
+    </div>
+    <div class="mock-chips">
+      <span class="mock-chip active">全部 127</span>
+      <span class="mock-chip">抖音 89</span>
+      <span class="mock-chip">小红书 23</span>
+      <span class="mock-chip">B站 15</span>
+    </div>
+    <div class="mock-cards">
+      <div class="mock-card"><div class="mock-thumb">🎬</div><div class="mock-card-body"><div class="mock-card-title">三分钟学会 Python 装饰器</div><div class="mock-card-meta"><span>视频</span><span>2天前</span></div><div class="mock-card-author">代码随想录</div></div></div>
+      <div class="mock-card"><div class="mock-thumb">📸</div><div class="mock-card-body"><div class="mock-card-title">周末探店｜藏在巷子里的咖啡</div><div class="mock-card-meta"><span>图文</span><span>5天前</span></div><div class="mock-card-author">城市漫步者</div></div></div>
+    </div>
+    <div class="mock-sidebar">
+      <h4>统计</h4>
+      <div class="mock-stat">总计 <b>127</b> 条作品<br>占用空间 <b>4.2 GB</b></div>
+    </div>
+    <div class="mock-statusbar"><span class="dot"></span>正常</div>
+  </div>
+</div>
+
+<!-- D: 拿铁 -->
+<div class="scheme scheme-latte" onclick="copyVars('latte')">
+  <div class="scheme-head">
+    <span class="scheme-name">D · 拿铁 Latte</span>
+    <span class="scheme-tag tag-new">NEW</span>
+  </div>
+  <div class="mock">
+    <div class="mock-bar">
+      <span class="dot"></span>
+      <span>正常</span>
+      <input class="mock-input" placeholder="粘贴链接开始归档…" readonly>
+      <button class="mock-btn primary">归档</button>
+    </div>
+    <div class="mock-chips">
+      <span class="mock-chip active">全部 127</span>
+      <span class="mock-chip">抖音 89</span>
+      <span class="mock-chip">小红书 23</span>
+      <span class="mock-chip">B站 15</span>
+    </div>
+    <div class="mock-cards">
+      <div class="mock-card"><div class="mock-thumb">🎬</div><div class="mock-card-body"><div class="mock-card-title">三分钟学会 Python 装饰器</div><div class="mock-card-meta"><span>视频</span><span>2天前</span></div><div class="mock-card-author">代码随想录</div></div></div>
+      <div class="mock-card"><div class="mock-thumb">📸</div><div class="mock-card-body"><div class="mock-card-title">周末探店｜藏在巷子里的咖啡</div><div class="mock-card-meta"><span>图文</span><span>5天前</span></div><div class="mock-card-author">城市漫步者</div></div></div>
+    </div>
+    <div class="mock-sidebar">
+      <h4>统计</h4>
+      <div class="mock-stat">总计 <b>127</b> 条作品<br>占用空间 <b>4.2 GB</b></div>
+    </div>
+    <div class="mock-statusbar"><span class="dot"></span>正常</div>
+  </div>
+</div>
+
+<!-- E: 靛蓝 -->
+<div class="scheme scheme-indigo" onclick="copyVars('indigo')">
+  <div class="scheme-head">
+    <span class="scheme-name">E · 靛蓝 Indigo</span>
+    <span class="scheme-tag tag-new">NEW</span>
+  </div>
+  <div class="mock">
+    <div class="mock-bar">
+      <span class="dot"></span>
+      <span>正常</span>
+      <input class="mock-input" placeholder="粘贴链接开始归档…" readonly>
+      <button class="mock-btn primary">归档</button>
+    </div>
+    <div class="mock-chips">
+      <span class="mock-chip active">全部 127</span>
+      <span class="mock-chip">抖音 89</span>
+      <span class="mock-chip">小红书 23</span>
+      <span class="mock-chip">B站 15</span>
+    </div>
+    <div class="mock-cards">
+      <div class="mock-card"><div class="mock-thumb">🎬</div><div class="mock-card-body"><div class="mock-card-title">三分钟学会 Python 装饰器</div><div class="mock-card-meta"><span>视频</span><span>2天前</span></div><div class="mock-card-author">代码随想录</div></div></div>
+      <div class="mock-card"><div class="mock-thumb">📸</div><div class="mock-card-body"><div class="mock-card-title">周末探店｜藏在巷子里的咖啡</div><div class="mock-card-meta"><span>图文</span><span>5天前</span></div><div class="mock-card-author">城市漫步者</div></div></div>
+    </div>
+    <div class="mock-sidebar">
+      <h4>统计</h4>
+      <div class="mock-stat">总计 <b>127</b> 条作品<br>占用空间 <b>4.2 GB</b></div>
+    </div>
+    <div class="mock-statusbar"><span class="dot"></span>正常</div>
+  </div>
+</div>
+
+<!-- F: 炭黑 -->
+<div class="scheme scheme-charcoal" onclick="copyVars('charcoal')">
+  <div class="scheme-head">
+    <span class="scheme-name">F · 炭黑 Charcoal</span>
+    <span class="scheme-tag tag-dark">DARK</span>
+  </div>
+  <div class="mock">
+    <div class="mock-bar">
+      <span class="dot"></span>
+      <span>正常</span>
+      <input class="mock-input" placeholder="粘贴链接开始归档…" readonly>
+      <button class="mock-btn primary">归档</button>
+    </div>
+    <div class="mock-chips">
+      <span class="mock-chip active">全部 127</span>
+      <span class="mock-chip">抖音 89</span>
+      <span class="mock-chip">小红书 23</span>
+      <span class="mock-chip">B站 15</span>
+    </div>
+    <div class="mock-cards">
+      <div class="mock-card"><div class="mock-thumb">🎬</div><div class="mock-card-body"><div class="mock-card-title">三分钟学会 Python 装饰器</div><div class="mock-card-meta"><span>视频</span><span>2天前</span></div><div class="mock-card-author">代码随想录</div></div></div>
+      <div class="mock-card"><div class="mock-thumb">📸</div><div class="mock-card-body"><div class="mock-card-title">周末探店｜藏在巷子里的咖啡</div><div class="mock-card-meta"><span>图文</span><span>5天前</span></div><div class="mock-card-author">城市漫步者</div></div></div>
+    </div>
+    <div class="mock-sidebar">
+      <h4>统计</h4>
+      <div class="mock-stat">总计 <b>127</b> 条作品<br>占用空间 <b>4.2 GB</b></div>
+    </div>
+    <div class="mock-statusbar"><span class="dot"></span>正常</div>
+  </div>
+</div>
+
+<!-- G: 珊瑚 -->
+<div class="scheme scheme-coral" onclick="copyVars('coral')">
+  <div class="scheme-head">
+    <span class="scheme-name">G · 珊瑚 Coral</span>
+    <span class="scheme-tag tag-new">NEW</span>
+  </div>
+  <div class="mock">
+    <div class="mock-bar">
+      <span class="dot"></span>
+      <span>正常</span>
+      <input class="mock-input" placeholder="粘贴链接开始归档…" readonly>
+      <button class="mock-btn primary">归档</button>
+    </div>
+    <div class="mock-chips">
+      <span class="mock-chip active">全部 127</span>
+      <span class="mock-chip">抖音 89</span>
+      <span class="mock-chip">小红书 23</span>
+      <span class="mock-chip">B站 15</span>
+    </div>
+    <div class="mock-cards">
+      <div class="mock-card"><div class="mock-thumb">🎬</div><div class="mock-card-body"><div class="mock-card-title">三分钟学会 Python 装饰器</div><div class="mock-card-meta"><span>视频</span><span>2天前</span></div><div class="mock-card-author">代码随想录</div></div></div>
+      <div class="mock-card"><div class="mock-thumb">📸</div><div class="mock-card-body"><div class="mock-card-title">周末探店｜藏在巷子里的咖啡</div><div class="mock-card-meta"><span>图文</span><span>5天前</span></div><div class="mock-card-author">城市漫步者</div></div></div>
+    </div>
+    <div class="mock-sidebar">
+      <h4>统计</h4>
+      <div class="mock-stat">总计 <b>127</b> 条作品<br>占用空间 <b>4.2 GB</b></div>
+    </div>
+    <div class="mock-statusbar"><span class="dot"></span>正常</div>
+  </div>
+</div>
+
+<!-- H: 冰川 -->
+<div class="scheme scheme-glacier" onclick="copyVars('glacier')">
+  <div class="scheme-head">
+    <span class="scheme-name">H · 冰川 Glacier</span>
+    <span class="scheme-tag tag-new">NEW</span>
+  </div>
+  <div class="mock">
+    <div class="mock-bar">
+      <span class="dot"></span>
+      <span>正常</span>
+      <input class="mock-input" placeholder="粘贴链接开始归档…" readonly>
+      <button class="mock-btn primary">归档</button>
+    </div>
+    <div class="mock-chips">
+      <span class="mock-chip active">全部 127</span>
+      <span class="mock-chip">抖音 89</span>
+      <span class="mock-chip">小红书 23</span>
+      <span class="mock-chip">B站 15</span>
+    </div>
+    <div class="mock-cards">
+      <div class="mock-card"><div class="mock-thumb">🎬</div><div class="mock-card-body"><div class="mock-card-title">三分钟学会 Python 装饰器</div><div class="mock-card-meta"><span>视频</span><span>2天前</span></div><div class="mock-card-author">代码随想录</div></div></div>
+      <div class="mock-card"><div class="mock-thumb">📸</div><div class="mock-card-body"><div class="mock-card-title">周末探店｜藏在巷子里的咖啡</div><div class="mock-card-meta"><span>图文</span><span>5天前</span></div><div class="mock-card-author">城市漫步者</div></div></div>
+    </div>
+    <div class="mock-sidebar">
+      <h4>统计</h4>
+      <div class="mock-stat">总计 <b>127</b> 条作品<br>占用空间 <b>4.2 GB</b></div>
+    </div>
+    <div class="mock-statusbar"><span class="dot"></span>正常</div>
+  </div>
+</div>
+
+<!-- I: 极光 -->
+<div class="scheme scheme-aurora" onclick="copyVars('aurora')">
+  <div class="scheme-head">
+    <span class="scheme-name">I · 极光 Aurora</span>
+    <span class="scheme-tag tag-dark">DARK</span>
+  </div>
+  <div class="mock">
+    <div class="mock-bar">
+      <span class="dot"></span>
+      <span>正常</span>
+      <input class="mock-input" placeholder="粘贴链接开始归档…" readonly>
+      <button class="mock-btn primary">归档</button>
+    </div>
+    <div class="mock-chips">
+      <span class="mock-chip active">全部 127</span>
+      <span class="mock-chip">抖音 89</span>
+      <span class="mock-chip">小红书 23</span>
+      <span class="mock-chip">B站 15</span>
+    </div>
+    <div class="mock-cards">
+      <div class="mock-card"><div class="mock-thumb">🎬</div><div class="mock-card-body"><div class="mock-card-title">三分钟学会 Python 装饰器</div><div class="mock-card-meta"><span>视频</span><span>2天前</span></div><div class="mock-card-author">代码随想录</div></div></div>
+      <div class="mock-card"><div class="mock-thumb">📸</div><div class="mock-card-body"><div class="mock-card-title">周末探店｜藏在巷子里的咖啡</div><div class="mock-card-meta"><span>图文</span><span>5天前</span></div><div class="mock-card-author">城市漫步者</div></div></div>
+    </div>
+    <div class="mock-sidebar">
+      <h4>统计</h4>
+      <div class="mock-stat">总计 <b>127</b> 条作品<br>占用空间 <b>4.2 GB</b></div>
+    </div>
+    <div class="mock-statusbar"><span class="dot"></span>正常</div>
+  </div>
+</div>
+
+<!-- J: 碳纤维 -->
+<div class="scheme scheme-carbon" onclick="copyVars('carbon')">
+  <div class="scheme-head">
+    <span class="scheme-name">J · 碳纤维 Carbon</span>
+    <span class="scheme-tag tag-dark">DARK</span>
+  </div>
+  <div class="mock">
+    <div class="mock-bar">
+      <span class="dot"></span>
+      <span>正常</span>
+      <input class="mock-input" placeholder="粘贴链接开始归档…" readonly>
+      <button class="mock-btn primary">归档</button>
+    </div>
+    <div class="mock-chips">
+      <span class="mock-chip active">全部 127</span>
+      <span class="mock-chip">抖音 89</span>
+      <span class="mock-chip">小红书 23</span>
+      <span class="mock-chip">B站 15</span>
+    </div>
+    <div class="mock-cards">
+      <div class="mock-card"><div class="mock-thumb">🎬</div><div class="mock-card-body"><div class="mock-card-title">三分钟学会 Python 装饰器</div><div class="mock-card-meta"><span>视频</span><span>2天前</span></div><div class="mock-card-author">代码随想录</div></div></div>
+      <div class="mock-card"><div class="mock-thumb">📸</div><div class="mock-card-body"><div class="mock-card-title">周末探店｜藏在巷子里的咖啡</div><div class="mock-card-meta"><span>图文</span><span>5天前</span></div><div class="mock-card-author">城市漫步者</div></div></div>
+    </div>
+    <div class="mock-sidebar">
+      <h4>统计</h4>
+      <div class="mock-stat">总计 <b>127</b> 条作品<br>占用空间 <b>4.2 GB</b></div>
+    </div>
+    <div class="mock-statusbar"><span class="dot"></span>正常</div>
+  </div>
+</div>
+
+</div>
+
+<div style="margin-top:40px;padding:24px;background:#fff;border-radius:12px;border:1px solid #ddd">
+  <h2 style="font-size:16px;margin-bottom:12px">📋 方案对比</h2>
+  <table style="width:100%;border-collapse:collapse;font-size:13px">
+    <tr style="border-bottom:2px solid #eee"><th style="text-align:left;padding:8px">方案</th><th>风格</th><th>主色</th><th>背景</th><th>适合场景</th></tr>
+    <tr style="border-bottom:1px solid #f0f0f0"><td style="padding:8px"><b>A · 石墨</b></td><td>铅笔芯冷灰</td><td style="color:#4a5568">■ 钢灰 #4a5568</td><td>#ecedf0</td><td>磨砂金属质感，沉稳内敛，像一块石墨</td></tr>
+    <tr style="border-bottom:1px solid #f0f0f0"><td style="padding:8px"><b>B · 暮光</b></td><td>黄昏紫橙</td><td style="color:#e8956a">■ 暮橙 #e8956a</td><td style="background:#1a1025;color:#ede0d4;padding:2px 6px;border-radius:4px">#1a1025</td><td>日落天际线，深紫底+暖橙主色，浪漫沉浸</td></tr>
+    <tr style="border-bottom:1px solid #f0f0f0"><td style="padding:8px"><b>C · 薄荷</b></td><td>清新自然</td><td style="color:#059669">■ 翡翠 #059669</td><td>#f0fdf8</td><td>清爽舒适，适合内容管理</td></tr>
+    <tr style="border-bottom:1px solid #f0f0f0"><td style="padding:8px"><b>D · 拿铁</b></td><td>暖棕咖啡</td><td style="color:#c2703e">■ 焦糖 #c2703e</td><td>#faf6f1</td><td>温暖复古，类似现有 paper 但更精致</td></tr>
+    <tr style="border-bottom:1px solid #f0f0f0"><td style="padding:8px"><b>E · 靛蓝</b></td><td>科技紫蓝</td><td style="color:#4f46e5">■ 靛蓝 #4f46e5</td><td>#f5f5ff</td><td>现代科技感，类似 Linear/Notion</td></tr>
+    <tr style="border-bottom:1px solid #f0f0f0"><td style="padding:8px"><b>F · 炭黑</b></td><td>纯黑极简</td><td style="color:#3b82f6">■ 天蓝 #3b82f6</td><td style="background:#111113;color:#e5e5e7;padding:2px 6px;border-radius:4px">#111113</td><td>OLED 友好，比现有 deep 更纯粹</td></tr>
+    <tr style="border-bottom:1px solid #f0f0f0"><td style="padding:8px"><b>G · 珊瑚</b></td><td>暖橙活力</td><td style="color:#e8553a">■ 珊瑚 #e8553a</td><td>#fff8f6</td><td>活泼有温度，类似现有 rose 但更暖</td></tr>
+    <tr style="border-bottom:1px solid #f0f0f0"><td style="padding:8px"><b>H · 冰川</b></td><td>冷调天蓝</td><td style="color:#0284c7">■ 冰蓝 #0284c7</td><td>#f0f9ff</td><td>干净通透，类似现有 default 但更冷</td></tr>
+    <tr style="border-bottom:1px solid #f0f0f0"><td style="padding:8px"><b>I · 极光</b></td><td>冰岛夜空</td><td style="color:#2dd4a8">■ 极绿 #2dd4a8</td><td style="background:#0c1220;color:#e0ecf4;padding:2px 6px;border-radius:4px">#0c1220</td><td>深邃夜空 + 极光绿，按钮渐变青绿，沉浸感最强</td></tr>
+    <tr><td style="padding:8px"><b>J · 碳纤维</b></td><td>编织纹理暗色</td><td style="color:#d4d4d8">■ 银灰 #d4d4d8</td><td style="background:#0e0e10;color:#d4d4d8;padding:2px 6px;border-radius:4px">#0e0e10</td><td>45° 编织纹理，纯黑底+银灰按钮，超跑仪表盘质感</td></tr>
+  </table>
+</div>
+
+<div style="margin-top:24px;padding:16px 24px;background:#fffbe6;border-radius:12px;border:1px solid #ffe58f;font-size:13px;color:#614700">
+  💡 <b>提示</b>：点击任意方案卡片可复制该方案的 CSS 变量到剪贴板。选定后告诉我方案字母，我直接写入 index.html。
+</div>
+
+<script>
+const VARS = {
+  graphite: `--green-dot:#48855c;--amber:#b7791f;--bg:#ecedf0;--card:#f8f8fa;--input:#e4e5e9;--line:#d0d2d8;--txt:#1a1c20;--dim:#6b6e76;--ok:#48855c;--blue:#4a5568;--blue-l:#e2e4ea;--blue-d:#2d3748;--btntxt:#f8f8fa;--pinned:#dddee3;--thumbA:#d8dae0;--thumbB:#c8cad2;--shadow:0 1px 3px rgba(26,28,32,.08);--shadow-lg:0 8px 22px rgba(26,28,32,.14);--danger:#c53030;--danger-l:#fde8e8;--hover:rgba(26,28,32,.05);--overlay:rgba(26,28,32,.45)`,
+  twilight: `--green-dot:#7ecba1;--amber:#f0c060;--bg:#1a1025;--card:#241535;--input:#241535;--line:#3a2548;--txt:#ede0d4;--dim:#8a7090;--ok:#7ecba1;--blue:#e8956a;--blue-l:#3d2535;--blue-d:#f0b898;--btntxt:#1a1025;--pinned:#2e1d40;--thumbA:#2a1838;--thumbB:#352045;--shadow:0 1px 4px rgba(0,0,0,.4);--shadow-lg:0 14px 38px rgba(0,0,0,.5);--danger:#e85d75;--danger-l:#3d1525;--hover:rgba(232,149,106,.06);--overlay:rgba(26,16,37,.55)`,
+  mint: `--green-dot:#10b981;--amber:#f59e0b;--bg:#f0fdf8;--card:#ffffff;--input:#ecfdf5;--line:#d1fae5;--txt:#0f2e23;--dim:#5f8a7a;--ok:#10b981;--blue:#059669;--blue-l:#d1fae5;--blue-d:#047857;--btntxt:#ffffff;--pinned:#e6f7f0;--thumbA:#d5f0e5;--thumbB:#c0e8d8;--shadow:0 1px 3px rgba(5,150,105,.06);--shadow-lg:0 8px 22px rgba(5,150,105,.12);--danger:#ef4444;--danger-l:#fee2e2;--hover:rgba(5,150,105,.04);--overlay:rgba(15,46,35,.35)`,
+  latte: `--green-dot:#6a8a3f;--amber:#d4930a;--bg:#faf6f1;--card:#ffffff;--input:#f5efe8;--line:#e8ddd0;--txt:#3b2d20;--dim:#8c7a68;--ok:#6a8a3f;--blue:#c2703e;--blue-l:#f5e6d8;--blue-d:#9a5528;--btntxt:#ffffff;--pinned:#f0e8dc;--thumbA:#ede3d5;--thumbB:#e0d2c0;--shadow:0 1px 3px rgba(60,45,32,.06);--shadow-lg:0 8px 22px rgba(60,45,32,.12);--danger:#c0392b;--danger-l:#fbeae7;--hover:rgba(60,45,32,.04);--overlay:rgba(60,45,32,.35)`,
+  indigo: `--green-dot:#22c55e;--amber:#f59e0b;--bg:#f5f5ff;--card:#ffffff;--input:#eef0ff;--line:#dde0f5;--txt:#1e1b4b;--dim:#6366a0;--ok:#22c55e;--blue:#4f46e5;--blue-l:#e0e7ff;--blue-d:#3730a3;--btntxt:#ffffff;--pinned:#e8e8f8;--thumbA:#e0e0f5;--thumbB:#d0d0ee;--shadow:0 1px 3px rgba(79,70,229,.06);--shadow-lg:0 8px 22px rgba(79,70,229,.12);--danger:#ef4444;--danger-l:#fee2e2;--hover:rgba(79,70,229,.04);--overlay:rgba(30,27,75,.35)`,
+  charcoal: `--green-dot:#4ade80;--amber:#fbbf24;--bg:#111113;--card:#1c1c1f;--input:#1c1c1f;--line:#2c2c30;--txt:#e5e5e7;--dim:#71717a;--ok:#4ade80;--blue:#3b82f6;--blue-l:#172554;--blue-d:#93c5fd;--btntxt:#ffffff;--pinned:#222225;--thumbA:#1e1e22;--thumbB:#28282e;--shadow:0 1px 3px rgba(0,0,0,.5);--shadow-lg:0 14px 38px rgba(0,0,0,.5);--danger:#f87171;--danger-l:#2d1515;--hover:rgba(255,255,255,.04);--overlay:rgba(0,0,0,.55)`,
+  coral: `--green-dot:#16a34a;--amber:#ea580c;--bg:#fff8f6;--card:#ffffff;--input:#fff0ec;--line:#fdd;--txt:#2d1f1a;--dim:#8c6b5f;--ok:#16a34a;--blue:#e8553a;--blue-l:#ffe8e2;--blue-d:#c0392b;--btntxt:#ffffff;--pinned:#fff0ec;--thumbA:#ffe8e2;--thumbB:#ffd6cc;--shadow:0 1px 3px rgba(232,85,58,.06);--shadow-lg:0 8px 22px rgba(232,85,58,.12);--danger:#dc2626;--danger-l:#fee2e2;--hover:rgba(232,85,58,.04);--overlay:rgba(45,31,26,.35)`,
+  glacier: `--green-dot:#10b981;--amber:#f59e0b;--bg:#f0f9ff;--card:#ffffff;--input:#e0f2fe;--line:#bae6fd;--txt:#0c2d48;--dim:#5b8aa5;--ok:#10b981;--blue:#0284c7;--blue-l:#e0f2fe;--blue-d:#0369a1;--btntxt:#ffffff;--pinned:#e0f0fa;--thumbA:#d5eef8;--thumbB:#c0e4f2;--shadow:0 1px 3px rgba(2,132,199,.06);--shadow-lg:0 8px 22px rgba(2,132,199,.12);--danger:#ef4444;--danger-l:#fee2e2;--hover:rgba(2,132,199,.04);--overlay:rgba(12,45,72,.35)`,
+  aurora: `--green-dot:#34d399;--amber:#fbbf24;--bg:#0c1220;--card:#131b2e;--input:#131b2e;--line:#1e2d45;--txt:#e0ecf4;--dim:#5a7a94;--ok:#34d399;--blue:#2dd4a8;--blue-l:#0d2e28;--blue-d:#6ee7c0;--btntxt:#0c1220;--pinned:#162035;--thumbA:#152030;--thumbB:#1a2840;--shadow:0 1px 4px rgba(0,0,0,.45);--shadow-lg:0 14px 38px rgba(0,0,0,.5);--danger:#f87171;--danger-l:#2d1520;--hover:rgba(45,212,168,.06);--overlay:rgba(0,0,0,.55)`,
+  carbon: `--green-dot:#22c55e;--amber:#eab308;--bg:#0e0e10;--card:#161618;--input:#161618;--line:#252528;--txt:#d4d4d8;--dim:#5c5c63;--ok:#22c55e;--blue:#e0e0e0;--blue-l:#1e1e22;--blue-d:#ffffff;--btntxt:#0a0a0a;--pinned:#1a1a1e;--thumbA:#141416;--thumbB:#1c1c20;--shadow:0 1px 4px rgba(0,0,0,.6);--shadow-lg:0 14px 38px rgba(0,0,0,.6);--danger:#ef4444;--danger-l:#2a1215;--hover:rgba(255,255,255,.04);--overlay:rgba(0,0,0,.6)`
+};
+const NAMES = {graphite:'石墨',twilight:'暮光',mint:'薄荷',latte:'拿铁',indigo:'靛蓝',charcoal:'炭黑',coral:'珊瑚',glacier:'冰川',aurora:'极光',carbon:'碳纤维'};
+function copyVars(key){
+  const css = VARS[key];
+  navigator.clipboard.writeText(css).then(()=>{
+    const el = event.currentTarget.querySelector('.scheme-name');
+    const orig = el.textContent;
+    el.textContent = '✅ 已复制 ' + NAMES[key] + ' 变量';
+    setTimeout(()=>el.textContent = orig, 1500);
+  });
+}
+</script>
+</body>
+</html>
