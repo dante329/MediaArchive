@@ -1,6 +1,8 @@
 # 媒体归档 · MediaArchive
 
-**把你收藏的短视频、图文、实况照片存到自己的硬盘上，按博主整理好。**
+**中文** | [English](#mediaarchive)
+
+**把你收藏的短视频、图文、实况照片存到自己的硬盘上，按平台、博主整理好，还支持自定义分类。**
 
 一个 macOS 本地应用。粘贴一条链接，或者直接复制链接（自动监听剪贴板），它会从 20+ 个平台把内容抓下来、按「平台 / 博主 / 日期_标题」建好目录、写进索引表。支持批量导入抖音喜欢/收藏列表、博主主页作品、YouTube/B站播放列表。
 
@@ -13,10 +15,8 @@
 | 场景 | 问题 | 这个工具做什么 |
 |---|---|---|
 | 收藏夹越攒越多 | 平台内容会下架，博主会删号 | 抓成本地文件，永久保留 |
-| 关注了几十个博主 | 想看某个人的全部内容得一条条翻 | 按博主自动归档，一屏看全 |
 | 想批量备份喜欢列表 | 一个个复制链接太慢 | 一键读取抖音喜欢/收藏，勾选批量归档 |
-| 小红书的实况照片 | 右键保存只有一张静图 | 还原成真正的 Live Photo，可导入相册 |
-| 想找某个作品 | 翻收藏夹太累 | 标题/博主/链接搜索，秒级定位 |
+| 实况照片 | 右键保存只有一张静图 | 还原成真正的 Live Photo，可导入相册 |
 | 想训练/微调本地 AI | 缺少高质量中文多模态语料 | 归档即语料——视频、图文、元数据全部结构化存储在本地，可直接喂给本地大模型做 RAG、微调、数据分析 |
 
 ---
@@ -41,9 +41,9 @@ macOS App 窗口    → 粘贴链接 / 回车
 
 ```
 ~/Media/Archive/
-└── 抖音/
-    └── PONYGO小马/
-        └── 20261028_空城瓮伴奏@Kidd拍摄_a3f2k9/
+└── <平台>/
+    └── <博主>/
+        └── <日期>_<标题>_<id>/
             ├── video.mp4          去水印原画质
             ├── .poster.jpg        封面缩略图
             ├── meta.json          原始元数据
@@ -71,7 +71,7 @@ macOS App 窗口    → 粘贴链接 / 回车
 
 ### 三、实况照片完整还原
 
-小红书和 iPhone 的实况照片，在这个工具里有完整支持。
+各平台的实况照片，在这个工具里有完整支持。
 
 **关键认知：Live Photo 不是一个文件格式。** 它是照片 App 里的一条记录，由一个图片资源 + 一个配对视频 + 共享的 UUID 组成。文件系统层面永远是 `01.jpg` + `01.mov` 两个文件。
 
@@ -89,7 +89,7 @@ PhotoKit 导入（PHAssetCreationRequest，photo + pairedVideo 同时添加）
 照片 App 里出现真正的实况照片
 ```
 
-技术细节：`com.apple.quicktime.still-image-time` 必须是**独立元数据轨**，用 ffmpeg 的 `-metadata` 写只是文件级标签，照片 App 不认（会报 `PHPhotosErrorDomain error 3302`）。图片端的 `ContentIdentifier` 在 Apple MakerNote 里，小红书转码过的图常常没有这段结构，工具会自动注入骨架再写。
+技术细节：`com.apple.quicktime.still-image-time` 必须是**独立元数据轨**，用 ffmpeg 的 `-metadata` 写只是文件级标签，照片 App 不认（会报 `PHPhotosErrorDomain error 3302`）。图片端的 `ContentIdentifier` 在 Apple MakerNote 里，部分平台转码过的图常常没有这段结构，工具会自动注入骨架再写。
 
 ### 四、音频提取
 
@@ -105,7 +105,7 @@ ffmpeg -i video.mp4 -vn -c:a copy audio.m4a     # 无损，秒级完成
 
 - **搜索**：标题 / 博主 / 链接，支持模糊匹配
 - **筛选**：平台、博主（点卡片上的博主名直接跳转）、分类
-- **分类**：自建分类（收藏夹），把作品归入不同分类
+- **分类**：自建分类，把作品归入不同分类
 - **任务队列**：状态栏实时显示进度，点状态灯展开任务列表，每个任务可取消
 - **批量删除**：勾选 → 删除 → 进废纸篓（不是直接抹掉）
 - **清理失效记录**：一键清除数据库里文件已不存在的记录
@@ -251,14 +251,14 @@ media-archive/
 ├── livephoto.py            实况照片合成
 ├── tools/
 │   ├── douyin_api.js       抖音页面内 API（CDP）
-│   ├── fetch_list.js       通用列表抓取（小红书/X/IG/微博）
+│   ├── fetch_list.js       通用列表抓取
 │   ├── browser_media.js    浏览器兜底抓取
 │   ├── check_login_xhs.js  小红书登录态检查
 │   ├── lpmake.swift        AVFoundation 实况封装
 │   ├── ocr.swift           Vision OCR
 │   ├── lpimport.swift      批量导入相册
 │   └── trash.swift         移到废纸篓
-├── vendor/                 抖音下载器（git submodule）
+├── vendor/                 抖音下载器
 ├── patches/                抖音抓取器的补丁
 ├── design/                 设计稿 / 主题预览
 └── install.sh              一键安装
@@ -303,6 +303,294 @@ cd MediaArchive
 | `⌘W` `⌘M` `⌃⌘F` | 关闭 / 最小化 / 全屏 | 详情窗口 |
 
 全部可在设置里重新录制。
+
+---
+
+## License
+
+MIT
+
+---
+---
+
+<a id="mediaarchive"></a>
+
+# MediaArchive
+
+**Save your favorite short videos, image posts, and Live Photos to your own disk — organized by platform, creator, and custom collections.**
+
+A macOS native app. Paste a link, or just copy one (clipboard auto-watch), and it downloads content from 20+ platforms into a clean `Platform / Creator / Date_Title` directory tree with a SQLite index. Supports batch import from Douyin likes/favorites, creator homepages, and YouTube/Bilibili playlists.
+
+All parsing and downloading happens directly from your machine — no third-party services involved.
+
+---
+
+## Why
+
+| Scenario | Problem | What this tool does |
+|---|---|---|
+| Favorites keep piling up | Platform content gets taken down, creators delete accounts | Downloads to local files, preserved forever |
+| Want to batch-backup liked lists | Copying links one by one is too slow | One-click read of Douyin likes/favorites, check & batch archive |
+| Live Photos | Right-click save only gets a still image | Restores real Live Photos, importable to Photos app |
+| Want to train/fine-tune local AI | Lack of high-quality Chinese multimodal corpus | Archive = corpus — videos, images, metadata all structured locally, ready for RAG, fine-tuning, data analysis |
+
+---
+
+## Features
+
+### 1. One-Click Archive (20+ Platforms)
+
+Douyin · Xiaohongshu · X · Bilibili · YouTube · Instagram · Weibo · Reddit · Telegram · TikTok · Threads · Niconico · Vimeo · Dailymotion · Streamable · Newgrounds · Tumblr · Pinterest · VK · OK.ru · Twitch · SoundCloud · Apple Podcasts · WeChat Articles
+
+**Four entry points, one engine:**
+
+```
+macOS App window   → Paste link / Enter
+Global hotkey ⌘]   → Press in any app, archives clipboard
+Clipboard watch    → No hotkey needed (configurable per platform)
+Local web UI       → http://127.0.0.1:8787
+CLI                → python3 engine.py "url"
+```
+
+**Saved structure:**
+
+```
+~/Media/Archive/
+└── <Platform>/
+    └── <Creator>/
+        └── <Date>_<Title>_<id>/
+            ├── video.mp4          Original quality, watermark-free
+            ├── .poster.jpg        Cover thumbnail
+            ├── meta.json          Full metadata
+            └── source.txt         Human-readable source info
+```
+
+- **Watermark removal**: Douyin uses detail API for direct playback URL; Xiaohongshu fetches 1080p CDN originals
+- **Auto proxy**: Detects local Clash/Surge ports; overseas sites go through proxy, domestic direct
+- **Duplicate detection**: Already archived items show "exists" prompt, no wasted space
+- **Directory collision prevention**: Item ID suffix appended to directory name
+
+### 2. Batch Archive
+
+Not just single links — supports bulk import:
+
+| Entry | Description |
+|---|---|
+| **Douyin Likes** | After login, one-click read entire liked list |
+| **Douyin Favorites** | Same, reads favorites collection |
+| **Creator Homepage** | Paste creator URL, reads all public works |
+| **Playlists** | YouTube channels/playlists, Bilibili collections |
+| **Batch Links** | Paste a block of share text, auto-extracts all URLs |
+
+Batch panel supports: search filter, show unarchived only, select all unarchived, one-click archive selected.
+
+### 3. Live Photo Restoration
+
+Live Photos from various platforms are fully supported.
+
+**Key insight: Live Photo is not a file format.** It's a record in the Photos app, consisting of an image resource + a paired video + a shared UUID. At the filesystem level it's always `01.jpg` + `01.mov`.
+
+Pipeline:
+
+```
+Download pair (01.jpg + 01_live.mp4)
+   ↓
+Size alignment (re-encode video to image dimensions, force SAR=1:1)
+   ↓
+AVFoundation packaging (write mdta metadata track + dual ContentIdentifier)
+   ↓
+PhotoKit import (PHAssetCreationRequest, photo + pairedVideo added together)
+   ↓
+Real Live Photo appears in Photos app
+```
+
+Technical detail: `com.apple.quicktime.still-image-time` must be an **independent metadata track**. Writing via ffmpeg's `-metadata` is just a file-level tag that Photos app ignores (throws `PHPhotosErrorDomain error 3302`). The image-side `ContentIdentifier` lives in Apple MakerNote; some platforms' transcoded images lack this structure — the tool auto-injects the skeleton before writing.
+
+### 4. Audio Extraction
+
+Press `⌘E` to extract the audio track from the currently open video:
+
+```bash
+ffmpeg -i video.mp4 -vn -c:a copy audio.m4a     # Lossless, instant
+```
+
+Falls back to mp3 on failure. File saved in the item's directory.
+
+### 5. Management & Search
+
+- **Search**: Title / creator / URL, fuzzy matching
+- **Filter**: Platform, creator (click creator name on card to jump), collections
+- **Collections**: Create custom collections, organize items into categories
+- **Task queue**: Status bar shows real-time progress, click to expand task list, each task cancellable
+- **Batch delete**: Select → Delete → moves to Trash (not permanently erased)
+- **Prune stale records**: One-click cleanup of DB records whose files no longer exist
+
+### 6. Local AI Corpus
+
+Archiving isn't just backup — it's naturally a **structured multimodal corpus**.
+
+Each archived item on disk:
+
+```
+item_directory/
+├── video.mp4          Original video/image file
+├── .poster.jpg        Cover thumbnail
+├── meta.json          Full metadata (title, author, publish time, likes/comments/saves, tags, source URL…)
+└── source.txt         Human-readable source info
+```
+
+Combined with SQLite index fields (platform, creator, creator ID, item ID, timestamps, engagement data), you have:
+
+- A Chinese internet content dataset **organized by creator/platform/time**
+- **Video + image + metadata** multimodal paired data
+- **Fully offline, fully private** — data never leaves your machine
+
+**What you can do with it:**
+
+| Use Case | How |
+|---|---|
+| **RAG knowledge base** | Ingest meta.json + transcripts into vector DB, use local LLM for semantic search & QA |
+| **Fine-tuning dataset** | Title + description + tags naturally form instruction-output pairs for SFT |
+| **Content analysis** | SQL queries on engagement trends, creator output frequency, topic distribution |
+| **Recommender prototype** | Train personalized recommendation models on收藏 behavior + content features |
+| **Multimodal training** | Video frames + titles + tags = ready-made image-text alignment data |
+
+All data is in standard formats (JSON + MP4/JPG + SQLite), readable without any proprietary tools. The more you archive, the richer the corpus — a data asset that grows automatically with use.
+
+### 7. Native Window Experience
+
+Detail pages are **real macOS windows**, not web popups:
+
+- `⌘W` close, `⌘M` minimize to Dock, `⌃⌘F` fullscreen
+- Draggable anywhere, resizable from all 8 edges
+- Multiple items can have multiple windows open simultaneously, each playing independently
+- Closing a window immediately stops playback
+
+### 8. 11 Themes
+
+Default · Deep Night · Twilight · Mint · Latte · Indigo · Coral · Glacier · Aurora · Graphite · Follow System
+
+Each theme has its own color scheme, including dark modes (Deep Night, Twilight, Aurora, Graphite) and light modes. The Graphite theme features a carbon fiber weave texture effect.
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────┐
+│  macOS App (Swift)                               │
+│  ├ Main window    WKWebView → local web UI       │
+│  ├ Detail windows NSWindow × N (one per item)   │
+│  ├ Settings       SwiftUI native form            │
+│  └ Menu bar       Global hotkey / archive / audio│
+└────────────────┬────────────────────────────────┘
+                 │ JS bridge (WKScriptMessageHandler)
+                 │ + HTTP
+┌────────────────▼────────────────────────────────┐
+│  Python Server  ThreadingHTTPServer :8787        │
+│  ├ engine.py      Platform detect / parse / DL   │
+│  ├ batch.py       Batch list fetch / login state │
+│  ├ livephoto.py   Live Photo synthesis           │
+│  └ server.py      REST API + task queue + files  │
+└────────────────┬────────────────────────────────┘
+                 │
+┌────────────────▼────────────────────────────────┐
+│  Data Layer                                      │
+│  ├ ~/Media/Archive/  Files (human-readable)      │
+│  └ index.db          SQLite WAL (machine-query)  │
+└─────────────────────────────────────────────────┘
+```
+
+### Key Design Decisions
+
+**1. Why not a pure web app?**
+
+Browser divs can't do: drag outside window bounds (gets clipped), minimize to Dock, system-level hotkeys, real fullscreen Spaces. So detail pages use native `NSWindow` + `WKWebView` — the OS manages the window, the web manages the content.
+
+**2. Why four entry points share one engine?**
+
+App, web, CLI are all just "callers". The real logic lives in `engine.py`. Adding a new platform requires changing one place; all entry points benefit simultaneously. The app also archives via HTTP API (not direct `Process` calls), so the web task panel can see progress.
+
+**3. Why two data layers?**
+
+Filesystem layer is for humans: clear directory structure, meaningful filenames, browsable in Finder — data survives even without the tool. SQLite layer is for programs: search, filter, statistics.
+
+**4. Why does Douyin need special handling?**
+
+Douyin has JS-VMP anti-scraping (`a_bogus` signature). Pure HTTP requests can't get data. The solution: launch real Chrome (headless), attach via DevTools Protocol, read the page's own `aweme/v1/web/aweme/detail/` response — let the browser compute the signature for us. Other platforms use yt-dlp or direct page parsing.
+
+**5. Why custom Live Photo packaging?**
+
+Most open-source tools use ffmpeg's `-metadata` to write identifiers. The generated files look correct in metadata, but fail when imported to Photos app. Proper compliance requires AVFoundation to create an independent metadata track. This difference is only discoverable through actual Photos app import — `exiftool` reads both correctly.
+
+### Tech Stack
+
+| Layer | Technology | Notes |
+|---|---|---|
+| **App** | Swift + SwiftUI + AppKit | Windows/menu via AppKit, settings via SwiftUI |
+| **Web** | Vanilla HTML/CSS/JS | No framework, single file ~4100 lines |
+| **Container** | WKWebView | Both main and detail windows |
+| **Bridge** | WKScriptMessageHandler | Web ↔ native bidirectional |
+| **Server** | Python 3 stdlib | `ThreadingHTTPServer`, zero dependencies |
+| **Parsing** | Chrome DevTools Protocol / yt-dlp | Douyin via CDP, others via yt-dlp |
+| **Media** | ffmpeg | Transcode, thumbnails, audio extraction, size alignment |
+| **Live Photo** | AVFoundation + exiftool + PhotoKit | Metadata track, image identifier, album write |
+| **Storage** | SQLite WAL + filesystem | Index and raw data separated |
+
+### Code Size
+
+```
+server.py        1896 lines  REST API & task queue
+web/index.html   4154 lines  All frontend (single file)
+app/main.swift   2127 lines  Native app
+engine.py        1203 lines  Platform parsing + download + archive
+tools/*.js        612 lines  Douyin API / browser fallback / list fetch
+tools/*.swift     246 lines  lpmake / OCR / trash / batch import
+batch.py          345 lines  Batch lists + login state
+livephoto.py      170 lines  Live Photo synthesis
+─────────────────────────
+~10,700 lines
+```
+
+---
+
+## Known Limitations
+
+| Limitation | Reason |
+|---|---|
+| Douyin requires Chrome + Node.js | Anti-scraping signature must be computed by a real browser |
+| Live Photos are only "live" in Photos app | It's fundamentally an album record, not a file format |
+| WeChat articles not supported | Requires a separate parser, not yet implemented |
+| macOS only | App layer uses extensive AppKit / PhotoKit / Vision native APIs |
+
+---
+
+## Installation
+
+```bash
+git clone https://github.com/dante329/MediaArchive.git
+cd MediaArchive
+./install.sh
+```
+
+`install.sh` auto-checks and installs dependencies: Chrome / Node / Python / Swift / ffmpeg / exiftool, pulls the Douyin downloader and applies patches, generates config, compiles and installs the app, registers the web service as a persistent daemon.
+
+---
+
+## Keyboard Shortcuts
+
+| Shortcut | Action | Scope |
+|---|---|---|
+| `⌘]` | Archive clipboard | Global |
+| `⇧⌘I` | Import all Live Photos to album | In-app |
+| `⌘I` | Extract Live Photo from current item | In-app |
+| `⌘E` | Extract audio from current item | In-app |
+| `⌘O` | Open main window / Reveal in Finder | In-app |
+| `⌘R` | Refresh page | In-app |
+| `⌘,` | Settings | In-app |
+| `⌘W` `⌘M` `⌃⌘F` | Close / Minimize / Fullscreen | Detail window |
+
+All rebindable in Settings.
 
 ---
 
