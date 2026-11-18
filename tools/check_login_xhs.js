@@ -2,78 +2,77 @@
 /**
  * 检查小红书是否真的登录（不能只看 web_session：游客也有这个 cookie）。
  * 输出: logged_in | not_logged_in | no_cdp
+ * 退出码: 0=已登录 1=未登录 2=连不上 Chrome
+ *
+ * CDP 的超时/断连处理见 tools/cdp.js。这里额外把命令超时压到 15s：
+ * 登录态探测是同步卡在 UI 上的，宁可快点回 no_cdp 也不要吊着。
  */
+const cdp = require('./cdp');
+
 const PORT = process.argv[2] || '9222';
-const HTTP = `http://127.0.0.1:${PORT}`;
+const CMD_TIMEOUT = 15000;
+
+const CHECK_EXPR = `(() => {
+  try {
+    if (location.pathname.startsWith('/login')) return false;
+    const s = window.__INITIAL_STATE__ || {};
+    const u = s.user || {};
+    if (u.loggedIn === true) return true;
+    if (u.loggedIn === false) return false;
+    const txt = document.body ? (document.body.innerText || '') : '';
+    if (txt.includes('登录后推荐') || txt.includes('扫码登录') || txt.includes('手机号登录')) return false;
+    const btn = document.querySelector('.login-container, .login-btn, [class*="login-container"], [class*="login-btn"]');
+    if (btn && btn.offsetParent !== null) return false;
+    const av = document.querySelector('a[href*="/user/profile/"] img, .side-bar img');
+    return !!av;
+  } catch (e) { return false; }
+})()`;
 
 async function main() {
   let list;
   try {
-    list = await (await fetch(`${HTTP}/json/list`)).json();
+    list = await cdp.listTabs(PORT);
   } catch (e) {
-    console.log('no_cdp'); process.exit(2);
+    console.log('no_cdp'); cdp.finish(2); return;
   }
-  let page = (list || []).find((t) => t.type === 'page' && /xiaohongshu\.com/.test(t.url || ''));
+
+  // 已经有小红书的页面就直接借用，别多开标签页（也避免打扰正在跑的任务）
+  let page = (list || []).find(t => t.type === 'page' && /xiaohongshu\.com/.test(t.url || ''));
   let created = false;
   if (!page) {
     try {
-      const r = await fetch(`${HTTP}/json/new?url=${encodeURIComponent('https://www.xiaohongshu.com/')}`, { method: 'PUT' });
-      page = await r.json();
+      page = await cdp.openTab(PORT, encodeURIComponent('https://www.xiaohongshu.com/'), { tries: 5, delay: 300 });
       created = true;
     } catch (e) {
-      console.log('no_cdp'); process.exit(2);
+      console.log('no_cdp'); cdp.finish(2); return;
     }
   }
-  if (!page || !page.webSocketDebuggerUrl) { console.log('no_cdp'); process.exit(2); }
+  if (!page || !page.webSocketDebuggerUrl) { console.log('no_cdp'); cdp.finish(2); return; }
 
-  const ws = new WebSocket(page.webSocketDebuggerUrl);
-  let id = 1; const pending = new Map();
-  ws.addEventListener('message', (ev) => {
-    const m = JSON.parse(ev.data);
-    if (m.id && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); }
-  });
-  await new Promise((r, j) => { ws.addEventListener('open', r); ws.addEventListener('error', j); });
-  const send = (method, params = {}) => new Promise((res) => {
-    const i = id++; pending.set(i, res);
-    ws.send(JSON.stringify({ id: i, method, params }));
-  });
-
-  if (!/xiaohongshu\.com/.test(page.url || '')) {
-    await send('Page.enable');
-    await send('Page.navigate', { url: 'https://www.xiaohongshu.com/' });
-    await new Promise((r) => setTimeout(r, 3500));
-  }
-  await new Promise((r) => setTimeout(r, 1200));
-
+  let client = null;
   let logged = false;
   try {
-    const r = await send('Runtime.evaluate', {
-      returnByValue: true,
-      expression: `(() => {
-        try {
-          if (location.pathname.startsWith('/login')) return false;
-          const s = window.__INITIAL_STATE__ || {};
-          const u = s.user || {};
-          if (u.loggedIn === true) return true;
-          if (u.loggedIn === false) return false;
-          const txt = document.body ? (document.body.innerText || '') : '';
-          if (txt.includes('登录后推荐') || txt.includes('扫码登录') || txt.includes('手机号登录')) return false;
-          const btn = document.querySelector('.login-container, .login-btn, [class*="login-container"], [class*="login-btn"]');
-          if (btn && btn.offsetParent !== null) return false;
-          const av = document.querySelector('a[href*="/user/profile/"] img, .side-bar img');
-          return !!av;
-        } catch (e) { return false; }
-      })()`,
-    });
-    logged = !!(r && r.result && r.result.result && r.result.result.value);
+    client = await cdp.connect(page.webSocketDebuggerUrl, { cmdTimeout: CMD_TIMEOUT, openTimeout: CMD_TIMEOUT });
+    if (!/xiaohongshu\.com/.test(page.url || '')) {
+      await client.send('Page.enable', {}, CMD_TIMEOUT);
+      await client.send('Page.navigate', { url: 'https://www.xiaohongshu.com/' }, CMD_TIMEOUT);
+      await cdp.sleep(3500);
+    }
+    await cdp.sleep(1200);
+    logged = !!(await client.evaluate(CHECK_EXPR, { timeout: CMD_TIMEOUT }));
   } catch (e) {
-    logged = false;
+    // 连不上 / 超时：明确报 no_cdp，别把「浏览器没了」说成「没登录」
+    console.log('no_cdp');
+    if (client) { try { client.close(); } catch (err) {} }
+    if (created) await cdp.closeTab(PORT, page.id);
+    cdp.finish(2);
+    return;
   }
-  ws.close();
-  if (created && page.id) {
-    try { await fetch(`${HTTP}/json/close/${page.id}`); } catch (e) {}
-  }
+
+  if (client) { try { client.close(); } catch (e) {} }
+  if (created) await cdp.closeTab(PORT, page.id);
   console.log(logged ? 'logged_in' : 'not_logged_in');
-  process.exit(logged ? 0 : 1);
+  cdp.finish(logged ? 0 : 1);
 }
-main().catch(() => { console.log('no_cdp'); process.exit(2); });
+
+main().catch(() => { console.log('no_cdp'); cdp.finish(2); });

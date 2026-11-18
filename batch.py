@@ -51,6 +51,22 @@ def _run(cmd, timeout, label=""):
         raise RuntimeError("%s超时（%d秒）" % (label or "命令执行", timeout))
 
 
+def _tool_error(r, label):
+    """把抓取工具的输出整理成一句人话错误。
+
+    工具没写输出文件又没有 stderr，说明它是「一声不响地退出」了 ——
+    这几乎都是常驻 Chrome 的 CDP 连接被掐断（浏览器被重启/被风控踢掉），
+    以前这种情况只会得到一条空错误，根本没法排查。
+    """
+    tail = ""
+    if r is not None:
+        tail = (((getattr(r, "stderr", "") or "") + (getattr(r, "stdout", "") or "")).strip())[-500:]
+    if tail:
+        return "%s失败：%s" % (label, tail)
+    return ("%s失败：进程没有输出就退出了，通常是常驻 Chrome 的调试连接被中断"
+            "（浏览器被重启或被风控踢掉）；稍后重试，或在设置里重新登录" % label)
+
+
 def _sanitize_url(url):
     """去除 URL 中的控制字符和换行。"""
     return re.sub(r'[\x00-\x1f\x7f]', '', (url or '').strip())
@@ -114,7 +130,7 @@ def flat_list(platform, url, limit=100):
             raise RuntimeError("%s 拒绝访问（412）：需要登录态或换时间再试；可在设置里打开「允许 yt-dlp 使用本机 Chrome 登录态」" % platform)
         if "login" in tail.lower() or "sign in" in tail.lower():
             raise RuntimeError("%s 需要登录：请在设置里打开 yt-dlp 本机 Chrome 登录态，或先在 App 浏览器登录" % platform)
-        raise RuntimeError("%s 列表读取失败：%s" % (platform, tail[:300]))
+        raise RuntimeError("%s 列表读取失败：%s" % (platform, tail[:300] or "没有返回数据"))
     try:
         data = json.loads(r.stdout)
     except Exception:
@@ -206,15 +222,22 @@ def fetch_items(platform, kind, url=None, refresh=False, max_age=600, limit=0):
             if not refresh and cp.exists() and time.time() - cp.stat().st_mtime < max_age:
                 try:
                     data = json.loads(cp.read_text("utf-8"))
-                    return _annotate(data, p, cached=True, limit=limit)
+                    cached_items = len(data.get("items") or [])
+                    complete = bool(data.get("complete"))
+                    # 旧版工具写的缓存没有 complete 标记 → 视为没抓全 → 重抓
+                    # limit>0：缓存条数够 limit 或源已滚完即可复用
+                    # limit=0（全部）：只有源确实滚完的缓存才能复用
+                    if (limit > 0 and (cached_items >= limit or complete)) or (limit == 0 and complete):
+                        return _annotate(data, p, cached=True, limit=limit)
+                    refresh = True
                 except Exception:
                     pass
             if p == "douyin":
                 out = cp.with_name(cp.stem + ".tmp-%d.json" % os.getpid())
-                r = _run([_node(), str(TOOLS / "douyin_api.js"), "user", url, str(out), PORT],
-                         timeout=240, label="抖音主页")
+                r = _run([_node(), str(TOOLS / "douyin_api.js"), "user", url, str(out), PORT, str(limit)],
+                         timeout=max(240, 60 + (limit or 500) // 10 * 5), label="抖音主页")
                 if not out.exists():
-                    raise RuntimeError("抖音主页读取失败：%s" % (((r.stderr or "") + (r.stdout or ""))[-400:]))
+                    raise RuntimeError(_tool_error(r, "抖音主页读取"))
                 try:
                     data = json.loads(out.read_text("utf-8"))
                 finally:
@@ -230,7 +253,7 @@ def fetch_items(platform, kind, url=None, refresh=False, max_age=600, limit=0):
                 r = _run([_node(), str(TOOLS / "fetch_list.js"), "xhs", "list", str(out), PORT, url],
                          timeout=300, label="小红书主页")
                 if not out.exists():
-                    raise RuntimeError("小红书主页读取失败：%s" % (((r.stderr or "") + (r.stdout or ""))[-400:]))
+                    raise RuntimeError(_tool_error(r, "小红书主页读取"))
                 try:
                     data = json.loads(out.read_text("utf-8"))
                 finally:
@@ -244,7 +267,7 @@ def fetch_items(platform, kind, url=None, refresh=False, max_age=600, limit=0):
             if p in ("youtube", "bilibili"):
                 items = flat_list(p, url)
                 data = {"platform": p, "kind": "list", "page": url, "items": items,
-                        "fetched_at": int(time.time())}
+                        "complete": True, "fetched_at": int(time.time())}
                 cp.write_text(json.dumps(data, ensure_ascii=False), "utf-8")
                 return _annotate(data, p, cached=False, limit=limit)
             elif p in ("x", "instagram", "weibo"):
@@ -252,7 +275,7 @@ def fetch_items(platform, kind, url=None, refresh=False, max_age=600, limit=0):
                 r = _run([_node(), str(TOOLS / "fetch_list.js"), p, "list", str(out), PORT, url],
                          timeout=300, label="%s列表" % p)
                 if not out.exists():
-                    raise RuntimeError("%s 列表读取失败：%s" % (p, ((r.stderr or "") + (r.stdout or ""))[-400:]))
+                    raise RuntimeError(_tool_error(r, "%s 列表读取" % p))
                 try:
                     data = json.loads(out.read_text("utf-8"))
                 finally:
@@ -280,22 +303,25 @@ def fetch_items(platform, kind, url=None, refresh=False, max_age=600, limit=0):
             except Exception:
                 data = None
             if data and data.get("items") is not None:
-                return _annotate(data, platform, cached=True, limit=limit)
+                cached_items = len(data.get("items") or [])
+                complete = bool(data.get("complete"))
+                if (limit > 0 and (cached_items >= limit or complete)) or (limit == 0 and complete):
+                    return _annotate(data, platform, cached=True, limit=limit)
+                refresh = True
         out = cp.with_name(cp.stem + ".tmp-%d.json" % os.getpid())
         if platform == "douyin" and not url and kind in ("fav", "like"):
             if kind == "fav":
-                args = [_node(), str(TOOLS / "douyin_api.js"), "fav", str(out), PORT]
+                args = [_node(), str(TOOLS / "douyin_api.js"), "fav", str(out), PORT, str(limit)]
             else:
-                args = [_node(), str(TOOLS / "douyin_api.js"), "list", "like", str(out), PORT]
-            r = _run(args, timeout=240, label="抖音%s" % kind)
+                args = [_node(), str(TOOLS / "douyin_api.js"), "list", "like", str(out), PORT, str(limit)]
+            r = _run(args, timeout=max(240, 60 + (limit or 500) // 10 * 5), label="抖音%s" % kind)
         else:
             cmd = [_node(), str(TOOLS / "fetch_list.js"), platform, kind, str(out), PORT]
             if url:
                 cmd.append(url)
             r = _run(cmd, timeout=300, label="%s_%s" % (platform, kind))
         if not out.exists():
-            tail = ((r.stdout or "") + (r.stderr or ""))[-500:]
-            raise RuntimeError("读取列表失败：%s" % (tail.strip() or "没有返回数据"))
+            raise RuntimeError(_tool_error(r, "读取列表"))
         try:
             data = json.loads(out.read_text("utf-8"))
         except Exception:

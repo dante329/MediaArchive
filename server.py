@@ -5,6 +5,7 @@
     python3 server.py            # 默认 http://127.0.0.1:8787
     python3 server.py --port 9000
 """
+import errno
 import json
 import mimetypes
 import os
@@ -26,6 +27,13 @@ from engine import export_csv
 HOME = Path.home()
 BASE = Path(__file__).resolve().parent
 CFG_FILE = HOME / ".media-archive" / "config.json"
+PID_DIR = HOME / ".media-archive"
+
+
+def pid_file_for(port):
+    """按端口分文件：同时跑多个实例（比如临时起一个调试端口）时不会互相踩"""
+    return PID_DIR / ("server-%d.pid" % port)
+SERVER_STARTED = time.time()
 
 
 def load_cfg():
@@ -206,14 +214,23 @@ def q_items(q="", platform="", author="", limit=200, offset=0, collection=None, 
         r["saved"] = datetime.fromtimestamp(r["saved_ts"]).strftime("%Y-%m-%d %H:%M") if r["saved_ts"] else ""
         r["created"] = datetime.fromtimestamp(r["created_ts"]).strftime("%Y-%m-%d %H:%M") if r["created_ts"] else ""
         # 使用 DB 中的 file_count 避免 N+1 scandir；仅当 file_count 不可靠时才回退扫描
+        # 注意：这里是只读的，任何「找回被挪走的目录」都走显式的 /api/rescan
         fc = r.get("file_count") or 0
-        folder_exists = Path(r["folder"]).exists()
+        folder = r.get("folder") or ""
+        folder_exists = bool(folder) and Path(folder).exists()
         if fc > 0 and folder_exists:
-            r["files"] = []
+            # 列表不需要完整 files（省 N+1 scandir），但卡片缩略图至少要一个图片和一个视频 URL。
+            # 只扫一次目录，找到第一个 image 和第一个 video 就停，比 list_files 快得多。
+            r["files"] = _first_media_thumbs(folder)
             r["missing"] = False
+            r["empty"] = False
         else:
-            r["files"] = list_files(r["folder"])
+            r["files"] = list_files(folder)
+            # empty = 目录在但还没放文件（刚新建的作品）；missing = 目录整个不见了
+            r["empty"] = folder_exists and not r["files"]
             r["missing"] = (not folder_exists) or (len(r["files"]) == 0)
+        r["folder_exists"] = folder_exists
+        r["author_key"] = (r.get("author_id") or "").strip() or (r.get("author") or "")
     return rows
 
 
@@ -375,6 +392,664 @@ def list_files(folder):
     return out
 
 
+def _first_media_thumbs(folder):
+    """只取第一个图片和第一个视频，用于列表卡片缩略图。比 list_files 快得多。"""
+    p = Path(folder)
+    if not p.exists():
+        return []
+    img_exts = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".heic"}
+    vid_exts = {".mp4", ".mkv", ".webm", ".mov", ".m4v"}
+    # 实况伴生视频（01_live.mp4 / 01.mov）不算「这个作品的视频」，
+    # 规则要和前端 renderItems 里的 /_live|^\d+\.mov$/ 保持一致，
+    # 否则实况图文的卡片会拿伴生小视频当封面，真正的视频反而被挤掉。
+    live_re = re.compile(r"_live$|^\d+\.mov$", re.I)
+    first_img = None
+    first_vid = None
+    first_live = None
+    try:
+        entries = sorted(os.scandir(p), key=lambda e: e.name)
+    except Exception:
+        return []
+    for entry in entries:
+        try:
+            if not entry.is_file(follow_symlinks=False):
+                continue
+            name = entry.name
+            low = name.lower()
+            if low.endswith(".poster.jpg") or low.endswith(".web.mp4"):
+                continue
+            ext = os.path.splitext(name)[1].lower()
+            if ext not in img_exts and ext not in vid_exts:
+                continue
+            st = entry.stat()
+            rec = {
+                "name": name,
+                "url": "/media?v=%d&p=%s" % (int(st.st_mtime),
+                                              urllib.parse.quote(str(p / name))),
+                "size": st.st_size,
+                "kind": "video" if ext in vid_exts else "image",
+            }
+            if ext in vid_exts:
+                stem = os.path.splitext(name)[0]
+                if live_re.search(stem) or live_re.search(name):
+                    if first_live is None:
+                        first_live = rec
+                elif first_vid is None:
+                    first_vid = rec
+            elif ext in img_exts and first_img is None:
+                first_img = rec
+            if first_img and (first_vid or first_live):
+                break
+        except Exception:
+            continue
+    if first_vid is None:
+        first_vid = first_live
+    out = []
+    if first_img:
+        out.append(first_img)
+    if first_vid:
+        out.append(first_vid)
+    return out
+
+
+# =======================================================
+#  归属 / 目录结构 / 文件上传
+#
+#  归档目录固定三层：<归档根>/<平台中文名>/<博主>/<作品目录>
+#  作品的归属以数据库为准，目录结构只是它的物理体现。
+#  所有「改归属」的操作都是显式的（用户点了按钮），浏览列表绝不写库。
+# =======================================================
+IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".heic", ".bmp", ".tif", ".tiff"}
+VIDEO_EXT = {".mp4", ".mkv", ".webm", ".mov", ".m4v", ".avi"}
+AUDIO_EXT = {".m4a", ".mp3", ".wav", ".aac", ".flac"}
+MEDIA_EXT = IMAGE_EXT | VIDEO_EXT | AUDIO_EXT
+# 扫描目录时要跳过的：工具缓存目录 + 系统垃圾目录
+SKIP_DIRS = {"_extras", ".git", ".Trashes", ".Spotlight-V100", ".fseventsd"}
+
+_PLAT_TABLES = {"ts": 0.0, "k2cn": {}, "cn2k": {}}
+
+
+def safe_dir_name(s, limit=30):
+    """目录名清洗，规则跟 engine.safe 保持一致（避免两套命名）"""
+    s = re.sub(r'[\\/:*?"<>|\r\n\t#]', " ", s or "")
+    s = re.sub(r"\s+", " ", s).strip()[:limit].strip()
+    while len(s.encode("utf-8")) > 200:
+        s = s[:-1]
+    return s.strip() or "untitled"
+
+
+def safe_file_name(name):
+    """上传文件名清洗：去掉路径和危险字符，保留扩展名"""
+    name = os.path.basename(str(name or "")).strip()
+    name = re.sub(r'[\\/:*?"<>|\r\n\t]', "_", name)
+    name = name.lstrip(".").strip()
+    return name[:120] or ("file_%d" % int(time.time()))
+
+
+def unique_dest(path):
+    """目标已存在就加序号，绝不覆盖用户已有的文件"""
+    p = Path(path)
+    if not p.exists():
+        return p
+    stem, suf = p.stem, p.suffix
+    for i in range(1, 500):
+        cand = p.with_name("%s_%d%s" % (stem, i, suf))
+        if not cand.exists():
+            return cand
+    return p.with_name("%s_%d%s" % (stem, int(time.time()), suf))
+
+
+def platform_tables():
+    """平台 key ↔ 中文名（内置 + 用户自定义 + 用户改名 + DB 里出现过的）"""
+    now = time.time()
+    if now - _PLAT_TABLES["ts"] < 30 and _PLAT_TABLES["k2cn"]:
+        return _PLAT_TABLES["k2cn"], _PLAT_TABLES["cn2k"]
+    k2cn, cn2k = {}, {}
+    try:
+        import engine
+        for row in getattr(engine, "PLATFORMS", []):
+            k2cn[row[0]] = row[2]
+            cn2k.setdefault(row[2], row[0])
+    except Exception:
+        pass
+    cfgdir = HOME / ".media-archive"
+    try:
+        custom = json.loads((cfgdir / "custom_platforms.json").read_text("utf-8"))
+        for p in (custom if isinstance(custom, list) else []):
+            if isinstance(p, dict) and p.get("key") and p.get("name"):
+                k2cn[p["key"]] = p["name"]
+                cn2k.setdefault(p["name"], p["key"])
+    except Exception:
+        pass
+    try:
+        names = json.loads((cfgdir / "platform_names.json").read_text("utf-8"))
+        for k, v in (names or {}).items():
+            if k and v:
+                k2cn[k] = v
+                cn2k.setdefault(v, k)
+    except Exception:
+        pass
+    try:
+        con = db()
+        for r in con.execute("SELECT DISTINCT platform, platform_cn FROM items"):
+            if r["platform"] and r["platform_cn"]:
+                k2cn.setdefault(r["platform"], r["platform_cn"])
+                cn2k.setdefault(r["platform_cn"], r["platform"])
+        con.close()
+    except Exception:
+        pass
+    k2cn.setdefault("manual", "手动")
+    cn2k.setdefault("手动", "manual")
+    _PLAT_TABLES.update({"ts": now, "k2cn": k2cn, "cn2k": cn2k})
+    return k2cn, cn2k
+
+
+def platform_cn_for(key):
+    return platform_tables()[0].get(key or "", "手动")
+
+
+def platform_key_for(cn):
+    return platform_tables()[1].get(cn or "", "")
+
+
+def author_key_of(row):
+    """侧栏分组用的 key：有稳定 ID 用 ID，没有就用名字（跟 q_authors 一致）"""
+    aid = (row["author_id"] if "author_id" in row.keys() else "") or ""
+    return aid.strip() or (row["author"] or "")
+
+
+def resolve_author_identity(con, name, platform=""):
+    """按博主名（+平台）取出这个博主的稳定身份。
+
+    新建作品 / 搬作品过来时都用它，否则侧栏会裂成两个同名博主，
+    按 author_key 过滤也匹配不上。platform 为空时不限平台。
+    """
+    name = (name or "").strip()
+    out = {"author": name, "author_id": "", "author_url": "",
+           "platform": (platform or "").strip(), "platform_cn": ""}
+    if not name:
+        out["platform"] = out["platform"] or "manual"
+        out["platform_cn"] = platform_cn_for(out["platform"])
+        return out
+    sql = ("SELECT author_id, author_url, platform, platform_cn FROM items"
+           " WHERE author=?")
+    args = [name]
+    if out["platform"]:
+        sql += " AND platform=?"
+        args.append(out["platform"])
+    sql += (" ORDER BY (CASE WHEN author_id IS NULL OR author_id='' THEN 1 ELSE 0 END),"
+            " saved_ts DESC LIMIT 1")
+    try:
+        r = con.execute(sql, args).fetchone()
+    except Exception:
+        r = None
+    if r:
+        out["author_id"] = r["author_id"] or ""
+        out["author_url"] = r["author_url"] or ""
+        if not out["platform"]:
+            out["platform"] = r["platform"] or ""
+        out["platform_cn"] = r["platform_cn"] or ""
+    if not out["platform"]:
+        out["platform"] = platform_key_for(out["platform_cn"]) or "manual"
+    if not out["platform_cn"]:
+        out["platform_cn"] = platform_cn_for(out["platform"])
+    return out
+
+
+def author_dir_for(platform_cn, author):
+    """某个博主对应的归档目录：<根>/<平台中文名>/<博主>"""
+    return ARCHIVE / safe_dir_name(platform_cn or "手动", 30) / safe_dir_name(author or "未知博主", 30)
+
+
+def path_identity(folder):
+    """从作品目录路径反推「平台 / 博主」（用户在 Finder 里挪过目录时以此为准）"""
+    try:
+        rel = Path(folder).resolve().relative_to(ARCHIVE.resolve())
+    except Exception:
+        return None
+    parts = rel.parts
+    if len(parts) < 3:
+        return None
+    return {"platform_cn": parts[0], "author": parts[1],
+            "platform": platform_key_for(parts[0])}
+
+
+def refresh_item_media(con, item_id, folder):
+    """按目录里的实际文件刷新 file_count 和类型。
+
+    类型规则：只有音频 → 音频；有视频且没图片 → 视频；其余 → 图文。
+    目录为空时保留原类型（用户刚建的空作品不该被改成图文）。
+    """
+    files = list_files(folder)
+    kinds = set(f["kind"] for f in files)
+    typ = None
+    if files:
+        if kinds == {"audio"}:
+            typ = "音频"
+        elif "video" in kinds and "image" not in kinds:
+            typ = "视频"
+        else:
+            typ = "图文"
+    fields = {"file_count": len(files)}
+    if typ:
+        fields["type"] = typ
+    sets = ",".join("%s=?" % k for k in fields)
+    con.execute("UPDATE items SET %s WHERE id=?" % sets,
+                list(fields.values()) + [item_id])
+    return {"file_count": len(files), "type": typ, "files": files}
+
+
+def set_item_identity(con, item_id, ident, folder=None):
+    """把一条记录的归属改成 ident（可选同时改目录），返回被改的字段"""
+    fields = {"author": ident.get("author") or "",
+              "author_id": ident.get("author_id") or "",
+              "author_url": ident.get("author_url") or "",
+              "platform": ident.get("platform") or "manual",
+              "platform_cn": ident.get("platform_cn") or "手动"}
+    if folder is not None:
+        fields["folder"] = str(folder)
+    sets = ",".join("%s=?" % k for k in fields)
+    con.execute("UPDATE items SET %s WHERE id=?" % sets,
+                list(fields.values()) + [item_id])
+    return fields
+
+
+def _set_fields(con, item_id, fields):
+    if not fields:
+        return
+    sets = ",".join("%s=?" % k for k in fields)
+    con.execute("UPDATE items SET %s WHERE id=?" % sets,
+                list(fields.values()) + [item_id])
+
+
+def scan_folder_index():
+    """{作品目录名: [实际路径]}。只扫「平台/博主/作品」这三层，很便宜。"""
+    m = {}
+    try:
+        plats = list(os.scandir(str(ARCHIVE)))
+    except Exception as e:
+        print("[warn] 扫描归档目录失败：%s" % e, file=sys.stderr)
+        return m
+    for plat in plats:
+        if not plat.is_dir() or plat.name in SKIP_DIRS:
+            continue
+        try:
+            authors = list(os.scandir(plat.path))
+        except Exception:
+            continue
+        for au in authors:
+            if not au.is_dir() or au.name in SKIP_DIRS:
+                continue
+            try:
+                items = list(os.scandir(au.path))
+            except Exception:
+                continue
+            for it in items:
+                if it.is_dir() and it.name not in SKIP_DIRS:
+                    m.setdefault(it.name, []).append(Path(it.path))
+    return m
+
+
+def claimed_folders(con, exclude_id=None):
+    """数据库里已经有主的目录集合；重定位时绝不能指过去，否则两条记录共用一个文件夹"""
+    out = set()
+    try:
+        rows = con.execute("SELECT id, folder FROM items").fetchall()
+    except Exception:
+        return out
+    for a in rows:
+        if exclude_id is not None and a["id"] == exclude_id:
+            continue                      # 自己原来占的位置要让出来
+        f = a["folder"] or ""
+        if not f:
+            continue
+        try:
+            out.add(str(Path(f).resolve()))
+        except Exception:
+            out.add(f)
+    return out
+
+
+def locate_folder(name, index=None, exclude=None):
+    """按目录名定位作品文件夹，返回 (路径 或 None, 原因)。
+
+    原因用于告诉用户为什么没自动修好：
+      ""          → 找到了，唯一匹配
+      "dup_name"  → 归档里有多个同名目录，不敢猜
+      "claimed"   → 唯一的同名目录已经是别的作品的，不能抢
+      "not_found" → 归档里根本没有这个目录名
+    """
+    if not name:
+        return None, "not_found"
+    idx = index if index is not None else scan_folder_index()
+    skip = exclude or set()
+    all_cands, free = [], []
+    for p in (idx.get(name) or []):
+        if not p.exists():
+            continue
+        all_cands.append(p)
+        try:
+            taken = str(p.resolve()) in skip
+        except Exception:
+            taken = str(p) in skip
+        if not taken:
+            free.append(p)
+    if not all_cands:
+        return None, "not_found"
+    if len(free) == 1:
+        return free[0], ""
+    if not free:
+        return None, "claimed"
+    return None, "dup_name"
+
+
+def find_folder_by_name(name, index=None, exclude=None):
+    """按目录名找回作品文件夹；只在「全库唯一且没被别人占用」时才认"""
+    return locate_folder(name, index, exclude)[0]
+
+
+def relocate_row(con, row, index=None, claimed=None):
+    """记录里的目录不见了 → 按目录名唯一匹配找回来。返回 (新路径 或 None, 原因)。
+
+    找到后按新位置回填平台/博主（目录结构就是归属），并沿用目标博主的稳定 ID。
+    claimed: 已被其它记录占用的目录集合，避免两条记录指到同一个文件夹。
+    """
+    old = row["folder"] or ""
+    if not old or Path(old).exists():
+        return None, ""
+    new, reason = locate_folder(Path(old).name, index, claimed)
+    if not new:
+        return None, reason or "not_found"
+    ident = path_identity(new)
+    fields = {"folder": str(new)}
+    if ident:
+        other = resolve_author_identity(con, ident["author"], ident["platform"] or "")
+        fields.update({"author": ident["author"],
+                       "platform_cn": ident["platform_cn"],
+                       "author_id": other["author_id"],
+                       "author_url": other["author_url"]})
+        if ident["platform"]:
+            fields["platform"] = ident["platform"]
+    files = list_files(new)
+    fields["file_count"] = len(files)
+    _set_fields(con, row["id"], fields)
+    if claimed is not None:
+        try:
+            claimed.add(str(new.resolve()))
+        except Exception:
+            claimed.add(str(new))
+    return new, ""
+
+
+def repair_index(only_id=None):
+    """显式修复：把「目录不见了」的记录找回来 + 刷新文件数/类型。
+
+    只在用户点按钮时跑，不在浏览列表时跑（浏览是只读的）。
+    修不好的会在 details 里说明原因，前端据此提示用户手动指路。
+    """
+    REASON_CN = {"dup_name": "归档里有多个同名目录，不敢猜",
+                 "claimed": "同名目录已经是别的作品的，不能抢",
+                 "not_found": "归档里找不到这个目录"}
+    con = db()
+    stats = {"scanned": 0, "relocated": 0, "refreshed": 0, "still_missing": 0,
+             "ambiguous": 0, "blocked": 0, "ids": [], "details": []}
+    changed = False
+    try:
+        if only_id is not None:
+            rows = con.execute("SELECT * FROM items WHERE id=?", (int(only_id),)).fetchall()
+        else:
+            rows = con.execute("SELECT * FROM items").fetchall()
+        claimed = claimed_folders(con)
+        index = scan_folder_index()
+        for r in rows:
+            stats["scanned"] += 1
+            folder = r["folder"] or ""
+            if folder and Path(folder).exists():
+                # 目录在：只把文件数/类型刷新一下（目录被外部改过也能对上）
+                before = r["file_count"] or 0
+                info = refresh_item_media(con, r["id"], folder)
+                if info["file_count"] != before:
+                    changed = True
+                    stats["refreshed"] += 1
+                continue
+            if not folder:
+                stats["still_missing"] += 1
+                stats["details"].append({"id": r["id"], "title": r["title"],
+                                         "reason": "记录里没有目录"})
+                continue
+            # 自己原来占的位置先让出来，否则永远匹配不上
+            try:
+                claimed.discard(str(Path(folder).resolve()))
+            except Exception:
+                claimed.discard(folder)
+            new, reason = relocate_row(con, r, index, claimed)
+            if new:
+                changed = True
+                stats["relocated"] += 1
+                stats["ids"].append(r["id"])
+            else:
+                stats["still_missing"] += 1
+                if reason == "dup_name":
+                    stats["ambiguous"] += 1
+                elif reason == "claimed":
+                    stats["blocked"] += 1
+                stats["details"].append({
+                    "id": r["id"], "title": r["title"], "folder": folder,
+                    "reason": REASON_CN.get(reason, reason)})
+        if changed:
+            con.commit()
+    finally:
+        con.close()
+    _PLAT_TABLES["ts"] = 0.0
+    if changed:
+        try:
+            export_csv()
+        except Exception:
+            pass
+    return stats
+
+
+def cleanup_empty_dir(d, depth=0):
+    """博主/平台目录空了就顺手清掉，别在归档里留空壳（最多往上清两层）"""
+    try:
+        d = Path(d)
+        if depth > 2 or not d.exists() or not d.is_dir():
+            return
+        if d.resolve() == ARCHIVE.resolve():
+            return
+        left = [x for x in d.iterdir() if x.name != ".DS_Store"]
+        if left:
+            return
+        for junk in d.iterdir():
+            try:
+                junk.unlink()
+            except Exception:
+                pass
+        d.rmdir()
+        cleanup_empty_dir(d.parent, depth + 1)
+    except Exception:
+        pass
+
+
+def move_item_folder(row, ident, mode="move"):
+    """把作品目录搬到目标博主目录下（move）或复制一份（copy）。
+
+    返回新目录 Path；mode="copy" 时源目录保留。目录名冲突自动加序号，绝不覆盖。
+    """
+    src = Path(row["folder"] or "")
+    dest_dir = author_dir_for(ident.get("platform_cn"), ident.get("author"))
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    if not src.exists():
+        # 源目录已经不在了：只把记录指到新位置（后面 rescan 还能按名字找回文件）
+        return dest_dir / (Path(row["folder"] or "item").name)
+    if mode == "copy":
+        dest = unique_dest(dest_dir / src.name)
+        shutil.copytree(str(src), str(dest), symlinks=True,
+                        ignore=shutil.ignore_patterns(*SKIP_DIRS))
+        return dest
+    if src.parent.resolve() == dest_dir.resolve():
+        return src                      # 已经在这个博主下了，不用搬
+    dest = unique_dest(dest_dir / src.name)
+    shutil.move(str(src), str(dest))
+    cleanup_empty_dir(src.parent)
+    return dest
+
+
+def author_group_rows(con, key="", name="", platform=""):
+    """取出侧栏「一个博主」对应的全部记录。
+
+    key 优先（稳定 ID，没有 ID 的组 key 就是名字）；platform 用来区分同名不同平台。
+    """
+    key = (key or "").strip()
+    name = (name or "").strip()
+    if not key and not name:
+        return []
+    sql = ("SELECT * FROM items WHERE (CASE WHEN author_id IS NULL OR author_id=''"
+           " THEN author ELSE author_id END) = ?")
+    args = [key or name]
+    if platform:
+        sql += " AND platform=?"
+        args.append(platform)
+    return con.execute(sql, args).fetchall()
+
+
+def find_author_conflicts(con, name, exclude_key="", exclude_platform=""):
+    """重名检查：目标名字是否已经被「另一个博主」占用。
+
+    返回 None 表示没冲突；否则返回冲突方的信息，前端据此提示合并。
+    """
+    name = (name or "").strip()
+    if not name:
+        return None
+    rows = con.execute("SELECT * FROM items WHERE author=?", (name,)).fetchall()
+    groups = {}
+    for r in rows:
+        k = (r["platform"] or "", author_key_of(r))
+        groups.setdefault(k, []).append(r)
+    # 手工建但还没有作品的博主也算占用
+    customs = []
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS custom_authors(
+            name TEXT, platform TEXT, created_ts INTEGER,
+            PRIMARY KEY(name, platform))""")
+        for c in con.execute("SELECT name, platform FROM custom_authors WHERE name=?",
+                             (name,)).fetchall():
+            customs.append(c)
+    except Exception:
+        pass
+    hit = None
+    for (plat, key), rs in groups.items():
+        if key == (exclude_key or "").strip() and plat == (exclude_platform or ""):
+            continue                      # 就是它自己，不算冲突
+        hit = {"name": name, "platform": plat, "author_key": key,
+               "items": len(rs),
+               "platforms": sorted({x["platform_cn"] or "" for x in rs} - {""}),
+               "author_id": next((x["author_id"] for x in rs if x["author_id"]), ""),
+               "author_url": next((x["author_url"] for x in rs if x["author_url"]), "")}
+        break
+    if hit:
+        return hit
+    for c in customs:
+        if (c["platform"] or "") == (exclude_platform or "") and name == (exclude_key or "").strip():
+            continue
+        return {"name": name, "platform": c["platform"] or "", "author_key": name,
+                "items": 0, "platforms": [], "author_id": "", "author_url": "",
+                "empty_custom": True}
+    return None
+
+
+def rename_author_group(con, old, new, key="", platform=""):
+    """重命名一个博主组：改记录 + 把磁盘上的博主目录一起改名。
+
+    只动 key/platform 圈定的那一组，同名不同平台的另一个博主不受影响。
+    """
+    rows = author_group_rows(con, key, old, platform)
+    if not rows:
+        return {"count": 0, "moved": 0}
+    ident = resolve_author_identity(con, new, platform)
+    ident["author"] = new
+    moved = 0
+    for r in rows:
+        fields = {"author": new}
+        # 稳定 ID 沿用原来那一组的（改名不换人）
+        if r["author_id"]:
+            fields["author_id"] = r["author_id"]
+            fields["author_url"] = r["author_url"] or ident["author_url"]
+        if not platform:
+            fields["platform"] = r["platform"] or ident["platform"]
+            fields["platform_cn"] = r["platform_cn"] or ident["platform_cn"]
+        else:
+            fields["platform"] = platform
+            fields["platform_cn"] = platform_cn_for(platform)
+        old_folder = r["folder"] or ""
+        if old_folder and Path(old_folder).exists():
+            try:
+                dest_dir = author_dir_for(fields.get("platform_cn") or r["platform_cn"], new)
+                dest_dir.mkdir(parents=True, exist_ok=True)
+                if Path(old_folder).parent.resolve() != dest_dir.resolve():
+                    dest = unique_dest(dest_dir / Path(old_folder).name)
+                    shutil.move(old_folder, str(dest))
+                    cleanup_empty_dir(Path(old_folder).parent)
+                    fields["folder"] = str(dest)
+                    moved += 1
+            except Exception as e:
+                print("[warn] 改名搬目录失败 #%s：%s" % (r["id"], e), file=sys.stderr)
+        _set_fields(con, r["id"], fields)
+    try:
+        con.execute("UPDATE custom_authors SET name=? WHERE name=?", (new, old))
+    except Exception:
+        pass
+    return {"count": len(rows), "moved": moved}
+
+
+def merge_author_group(con, old, target, key="", platform="", target_key="",
+                       target_platform=""):
+    """合并：把 old 这一组整体并进已存在的 target（记录 + 目录 + 稳定 ID 全统一）"""
+    rows = author_group_rows(con, key, old, platform)
+    if not rows:
+        return {"count": 0, "moved": 0}
+    trows = author_group_rows(con, target_key, target, target_platform)
+    ident = resolve_author_identity(con, target, target_platform)
+    if trows:
+        ident["author_id"] = next((x["author_id"] for x in trows if x["author_id"]),
+                                  ident["author_id"])
+        ident["author_url"] = next((x["author_url"] for x in trows if x["author_url"]),
+                                   ident["author_url"])
+        ident["platform"] = target_platform or trows[0]["platform"] or ident["platform"]
+        ident["platform_cn"] = (trows[0]["platform_cn"]
+                                or platform_cn_for(ident["platform"]))
+    ident["author"] = target
+    moved = 0
+    for r in rows:
+        fields = {"author": target,
+                  "author_id": ident["author_id"],
+                  "author_url": ident["author_url"]}
+        # 目标组没有稳定 ID 时，保留各行自己的平台，别把不同平台的作品混成一堆
+        if ident["author_id"]:
+            fields["platform"] = ident["platform"]
+            fields["platform_cn"] = ident["platform_cn"]
+        old_folder = r["folder"] or ""
+        if old_folder and Path(old_folder).exists():
+            try:
+                pcn = fields.get("platform_cn") or r["platform_cn"]
+                dest_dir = author_dir_for(pcn, target)
+                dest_dir.mkdir(parents=True, exist_ok=True)
+                if Path(old_folder).parent.resolve() != dest_dir.resolve():
+                    dest = unique_dest(dest_dir / Path(old_folder).name)
+                    shutil.move(old_folder, str(dest))
+                    cleanup_empty_dir(Path(old_folder).parent)
+                    fields["folder"] = str(dest)
+                    moved += 1
+            except Exception as e:
+                print("[warn] 合并搬目录失败 #%s：%s" % (r["id"], e), file=sys.stderr)
+        _set_fields(con, r["id"], fields)
+    try:
+        con.execute("DELETE FROM custom_authors WHERE name=?", (old,))
+    except Exception:
+        pass
+    return {"count": len(rows), "moved": moved}
+
+
 PINS_FILE = HOME / ".media-archive" / "pins.json"
 ORDER_FILE = HOME / ".media-archive" / "order.json"
 
@@ -487,7 +1162,9 @@ def q_authors():
     for d in out:
         d["pinned"] = d["author"] in pins
         d.pop("saved_ts", None)
-    seen = {d["author_key"] for d in out}
+    # 已经有作品的博主名字：手工建的空壳不再重复出现（否则侧栏会裂成两个同名）
+    seen_keys = {d["author_key"] for d in out}
+    seen_names = {(d["author"] or "") for d in out}
     # 手工新建的博主（还没有作品）
     try:
         con2 = db()
@@ -498,12 +1175,16 @@ def q_authors():
     except Exception:
         extra = []
     for e in extra:
-        if e["name"] in seen:
+        nm = e["name"] or ""
+        if not nm or nm in seen_names or nm in seen_keys:
             continue
-        out.append({"author": e["name"], "platform": e["platform"], "platform_cn": "",
-                    "author_url": "", "author_id": "", "author_key": e["name"], "n": 0,
-                    "pinned": e["name"] in pins})
-        seen.add(e["name"])
+        pf = e["platform"] or "manual"
+        out.append({"author": nm, "platform": pf,
+                    "platform_cn": platform_cn_for(pf),
+                    "author_url": "", "author_id": "", "author_key": nm, "n": 0,
+                    "pinned": nm in pins})
+        seen_names.add(nm)
+        seen_keys.add(nm)
     order = (load_order().get("authors") or [])
     if order:
         idx = {name: i for i, name in enumerate(order)}
@@ -572,7 +1253,12 @@ def q_stats():
 
 
 def cleanup_stale_downloader():
-    """清掉上次遗留的抖音下载器 Chrome（只匹配下载器自己的 profile）"""
+    """清掉抖音下载器的 Chrome（只匹配下载器自己的 profile）
+
+    注意：这是一个「会影响所有在跑的抖音任务」的重操作 —— 常驻 Chrome 是所有
+    抖音任务共用的，杀掉它等于把每个任务页面内 API 的 CDP 连接一起掐断。
+    只在确认 CDP 已经不可用时才调用（见 ensure_douyin_chrome）。
+    """
     try:
         subprocess.run(["pkill", "-f", "douyin-ai-video-downloader/.chrome-profile"],
                        capture_output=True, timeout=15)
@@ -580,13 +1266,30 @@ def cleanup_stale_downloader():
         print("[warn] 清理残留 Chrome 失败：%s" % e, file=sys.stderr)
 
 
-def douyin_cdp_up():
+def douyin_cdp_up(timeout=2.0):
+    """CDP 端口上是不是真有一个能应答的 Chrome"""
     try:
         import urllib.request
-        urllib.request.urlopen("http://127.0.0.1:9222/json/version", timeout=1.0)
-        return True
+        with urllib.request.urlopen("http://127.0.0.1:9222/json/version",
+                                    timeout=timeout) as r:
+            return r.status == 200
     except Exception:
         return False
+
+
+def _chrome_version():
+    """读取本机 Chrome 实际版本号，避免 UA 和真实版本不一致被反爬检测"""
+    try:
+        out = subprocess.check_output(
+            ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "--version"],
+            timeout=5, stderr=subprocess.DEVNULL).decode().strip()
+        # 输出格式: "Google Chrome 157.0.8103.78" 或 "Chromium 120.0.0.0"
+        m = re.search(r"(\d+\.\d+\.\d+\.\d+)", out)
+        if m:
+            return m.group(1)
+    except Exception:
+        pass
+    return "157.0.0.0"  # fallback
 
 
 def start_douyin_chrome():
@@ -602,8 +1305,9 @@ def start_douyin_chrome():
         os.chmod(str(profile), 0o700)
     except Exception:
         pass
+    ver = _chrome_version()
     ua = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
-          "(KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36")
+          "(KHTML, like Gecko) Chrome/%s Safari/537.36" % ver)
     args = [chrome, "--headless=new", "--remote-debugging-port=9222",
             "--remote-allow-origins=*", "--user-data-dir=" + str(profile),
             "--no-first-run", "--no-default-browser-check",
@@ -622,10 +1326,27 @@ def start_douyin_chrome():
     return False
 
 
-def _active_douyin_tasks():
+def ensure_douyin_chrome():
+    """保证 CDP Chrome 可用，但不去动一个健康的实例。
+
+    只有「进程还在、CDP 却不应答」的僵尸状态才需要 pkill 重来：健康的 Chrome 是
+    所有抖音任务共用的，无脑杀掉会让正在解析的任务全部失败（这正是抖音爬取
+    失败率居高不下的原因）。
+    """
+    with DOUYIN_LOCK:
+        if douyin_cdp_up():
+            return True
+        cleanup_stale_downloader()
+        time.sleep(0.5)
+        return start_douyin_chrome()
+
+
+def _active_douyin_tasks(exclude=None):
+    """正在跑的抖音任务（exclude 用于把自己排除掉）"""
     with TASKS_LOCK:
         return [t for t in TASKS.values()
                 if t.get("kind") == "archive" and t.get("active")
+                and t.get("id") != exclude
                 and "douyin" in (t.get("url") or "")]
 
 
@@ -784,12 +1505,16 @@ def run_archive(url):
                     os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
                 except Exception:
                     proc.kill()
-                # 兜底清理可能残留的 Chrome
+                # 兜底：只有在 CDP 确实挂了、并且没有别的抖音任务在跑时才重启 Chrome。
+                # 常驻 Chrome 是所有抖音任务共用的，一个任务超时就把整个浏览器杀掉，
+                # 会连带把另外几个正在解析的任务全部弄失败。
                 if is_douyin:
                     try:
-                        cleanup_stale_downloader()
-                        time.sleep(0.5)
-                        start_douyin_chrome()
+                        if not douyin_cdp_up():
+                            if not _active_douyin_tasks(exclude=tid):
+                                ensure_douyin_chrome()
+                            else:
+                                start_douyin_chrome()
                     except Exception:
                         pass
                 return -1, "任务超过 %d 秒没有完成，已终止" % timeout
@@ -801,9 +1526,10 @@ def run_archive(url):
             time.sleep(0.3)
         # 抖音任务兜底：确保 CDP Chrome 活着（中途挂了也能自愈）
         if is_douyin:
-            with DOUYIN_LOCK:
-                if not douyin_cdp_up():
-                    start_douyin_chrome()
+            try:
+                ensure_douyin_chrome()
+            except Exception:
+                pass
         # 抖音也走全局并发：所有任务共用一个 Chrome（多标签页），
         # 每个任务有自己的临时目录 / 下载目录，互不干扰。
         with GLOBAL_SEM:
@@ -864,9 +1590,93 @@ def run_archive(url):
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "MediaArchive/1.0"
+    MAX_UPLOAD = 8 * 1024 ** 3          # 单个文件上限 8GB
 
     def log_message(self, fmt, *args):
         pass
+
+    def _upload_files(self, u):
+        """把用户选的照片/视频写进作品目录。
+
+        请求体就是文件原始字节（不做 multipart 解析），一个请求一个文件，
+        边收边写盘，几个 G 的视频也不会把内存吃满。
+            POST /api/item_files?id=<作品id>&name=<文件名>
+        """
+        qs = urllib.parse.parse_qs(u.query)
+        iid = (qs.get("id") or [""])[0]
+        raw_name = (qs.get("name") or [""])[0]
+        if not iid:
+            return self._json({"ok": False, "error": "缺少作品 id"}, 400)
+        total = int(self.headers.get("Content-Length") or 0)
+        if total <= 0:
+            return self._json({"ok": False, "error": "空文件"}, 400)
+        if total > self.MAX_UPLOAD:
+            return self._json({"ok": False, "error": "文件太大（上限 8GB）"}, 413)
+        con = db()
+        row = con.execute("SELECT * FROM items WHERE id=?", (int(iid),)).fetchone()
+        if not row:
+            con.close()
+            return self._json({"ok": False, "error": "作品不存在"}, 404)
+        folder = Path(row["folder"] or "")
+        # 目录被挪走/删掉了：先按名字找回来，找不回来就在归属目录下重建
+        if not folder.exists():
+            found = find_folder_by_name(folder.name,
+                                        exclude=claimed_folders(con, row["id"]))
+            if found:
+                folder = found
+                _set_fields(con, row["id"], {"folder": str(folder)})
+            else:
+                try:
+                    folder.mkdir(parents=True, exist_ok=True)
+                except Exception as e:
+                    con.close()
+                    return self._json({"ok": False, "error": "建目录失败：%s" % e}, 500)
+        try:
+            folder.resolve().relative_to(ARCHIVE.resolve())
+        except Exception:
+            con.close()
+            return self._json({"ok": False, "error": "只能写进归档目录里面"}, 403)
+        name = safe_file_name(raw_name)
+        ext = os.path.splitext(name)[1].lower()
+        if ext and ext not in MEDIA_EXT and ext not in {".txt", ".json", ".srt", ".vtt"}:
+            # 不是媒体文件也收（字幕/说明），但明确告诉前端类型没变
+            pass
+        target = unique_dest(folder / name)
+        tmp = target.with_name(target.name + ".part")
+        got = 0
+        try:
+            with open(str(tmp), "wb") as f:
+                left = total
+                while left > 0:
+                    chunk = self.rfile.read(min(1024 * 1024, left))
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    got += len(chunk)
+                    left -= len(chunk)
+            if got != total:
+                tmp.unlink(missing_ok=True)
+                con.close()
+                return self._json({"ok": False,
+                                   "error": "上传中断（只收到 %d/%d 字节）" % (got, total)}, 400)
+            tmp.replace(target)
+        except Exception as e:
+            try:
+                tmp.unlink(missing_ok=True)
+            except Exception:
+                pass
+            con.close()
+            return self._json({"ok": False, "error": "写入失败：%s" % e}, 500)
+        info = refresh_item_media(con, row["id"], folder)
+        con.commit()
+        con.close()
+        return self._json({"ok": True, "name": target.name, "path": str(target),
+                           "size": got, "file_count": info["file_count"],
+                           "type": info["type"],
+                           "kind": ("video" if ext in VIDEO_EXT
+                                    else "audio" if ext in AUDIO_EXT
+                                    else "image" if ext in IMAGE_EXT else "other"),
+                           "files": info["files"]})
 
     def _json(self, obj, code=200):
         body = json.dumps(obj, ensure_ascii=False).encode()
@@ -908,6 +1718,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(q_authors())
             if u.path == "/api/platforms":
                 return self._json(q_platforms())
+            if u.path == "/api/ping":
+                # 轻量存活探针：新实例用它判断「端口上是不是自己人」，
+                # 前端/桌面 App 也可以用它做健康检查（比 /api/stats 便宜得多）
+                return self._json({"app": "media-archive", "ok": True,
+                                   "pid": os.getpid(),
+                                   "started": SERVER_STARTED,
+                                   "version": 2})
             if u.path == "/api/health":
                 ytdlp = shutil.which("yt-dlp") or str(HOME / "Library/Python/3.9/bin/yt-dlp")
                 douyin_vendor = (BASE / "vendor" / "douyin-ai-video-downloader").exists()
@@ -1120,7 +1937,11 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json({"error": "not found"})
                 d = dict(row)
                 d["files"] = list_files(d.get("folder"))
-                d["missing"] = (not Path(d.get("folder") or "/nonexistent").exists()) or (len(d["files"]) == 0)
+                folder_exists = bool(d.get("folder")) and Path(d["folder"]).exists()
+                d["folder_exists"] = folder_exists
+                d["empty"] = folder_exists and not d["files"]
+                d["missing"] = (not folder_exists) or (len(d["files"]) == 0)
+                d["author_key"] = (d.get("author_id") or "").strip() or (d.get("author") or "")
                 return self._json(d)
             if u.path == "/api/item_folder_by_key":
                 from urllib.parse import parse_qs
@@ -1190,6 +2011,9 @@ class Handler(BaseHTTPRequestHandler):
         referer = self.headers.get("Referer") or ""
         if (origin and not origin_allowed(origin)) or (not origin and referer and not origin_allowed(referer)):
             return self._json({"ok": False, "error": "forbidden"}, 403)
+        # 文件上传：请求体是原始字节，不能走下面的 JSON 解析
+        if u.path in ("/api/item_files", "/api/upload"):
+            return self._upload_files(u)
         n = int(self.headers.get("Content-Length") or 0)
         try:
             body = json.loads(self.rfile.read(n) or b"{}") if n else {}
@@ -1207,13 +2031,11 @@ class Handler(BaseHTTPRequestHandler):
                 name = (body.get("author") or "").strip()
                 if not name:
                     return self._json({"ok": False, "error": "缺少博主名"})
+                # 按「这一组」删：同名不同平台的另一个博主不能被误删
+                akey = (body.get("author_key") or "").strip() or name
+                aplat = (body.get("platform") or "").strip()
                 con = db()
-                _ar = con.execute("SELECT author_id FROM items WHERE author=? AND author_id<>'' LIMIT 1", (name,)).fetchone()
-                _aid = _ar["author_id"] if _ar else ""
-                if _aid:
-                    rows = con.execute("SELECT id, folder FROM items WHERE author_id=?", (_aid,)).fetchall()
-                else:
-                    rows = con.execute("SELECT id, folder FROM items WHERE author=?", (name,)).fetchall()
+                rows = author_group_rows(con, akey, name, aplat)
                 trashed, failed = 0, []
                 for r in rows:
                     fol = Path(r["folder"] or "")
@@ -1239,15 +2061,22 @@ class Handler(BaseHTTPRequestHandler):
                                 move_to_trash(ad)
                     except Exception:
                         pass
-                ids = [str(r["id"]) for r in rows]
+                ids = [r["id"] for r in rows]
+                n = 0
                 if ids:
-                    con.execute("DELETE FROM analysis WHERE item_id IN (%s)" % ",".join(ids))
-                if _aid:
-                    n = con.execute("DELETE FROM items WHERE author_id=?", (_aid,)).rowcount
-                else:
-                    n = con.execute("DELETE FROM items WHERE author=?", (name,)).rowcount
+                    qs = ",".join("?" * len(ids))
+                    con.execute("DELETE FROM collection_items WHERE item_id IN (%s)" % qs, ids)
+                    try:
+                        con.execute("DELETE FROM analysis WHERE item_id IN (%s)" % qs, ids)
+                    except Exception:
+                        pass
+                    n = con.execute("DELETE FROM items WHERE id IN (%s)" % qs, ids).rowcount
                 try:
-                    con.execute("DELETE FROM custom_authors WHERE name=?", (name,))
+                    if aplat:
+                        con.execute("DELETE FROM custom_authors WHERE name=? AND platform=?",
+                                    (name, aplat))
+                    else:
+                        con.execute("DELETE FROM custom_authors WHERE name=?", (name,))
                 except Exception:
                     pass
                 con.commit()
@@ -1328,7 +2157,15 @@ class Handler(BaseHTTPRequestHandler):
             if u.path in ("/api/collection/add", "/api/collection/add_by_name",
                           "/api/collection/remove"):
                 ensure_collections()
-                name = (body.get("name") or "").strip()[:40]
+                removing = (u.path == "/api/collection/remove")
+                # 目标分类：可以一次给多个名字（names），也兼容老的单个 name / id
+                names_in = body.get("names")
+                if not isinstance(names_in, list):
+                    names_in = []
+                names_in = [str(x).strip()[:40] for x in names_in if str(x).strip()]
+                one = (body.get("name") or "").strip()[:40]
+                if one and one not in names_in:
+                    names_in.append(one)
                 cid = body.get("id")
                 raw_ids = body.get("item_ids") or []
                 if not isinstance(raw_ids, list):
@@ -1340,51 +2177,64 @@ class Handler(BaseHTTPRequestHandler):
                     except Exception:
                         pass
                 con = db()
-                if u.path == "/api/collection/add_by_name":
-                    if not name:
+                cids = []
+                if u.path == "/api/collection/add_by_name" or names_in:
+                    if not names_in:
                         con.close()
                         return self._json({"ok": False, "error": "缺少分类名"})
-                    con.execute("INSERT OR IGNORE INTO collections(name, created_ts) VALUES(?,?)",
-                                (name, int(time.time())))
-                    row = con.execute("SELECT id FROM collections WHERE name=?", (name,)).fetchone()
-                    if not row:
+                    for nm in names_in:
+                        if not removing:
+                            con.execute("INSERT OR IGNORE INTO collections(name, created_ts)"
+                                        " VALUES(?,?)", (nm, int(time.time())))
+                        row = con.execute("SELECT id FROM collections WHERE name=?",
+                                          (nm,)).fetchone()
+                        if row and row["id"] not in cids:
+                            cids.append(row["id"])
+                else:
+                    try:
+                        cids.append(int(cid))
+                    except Exception:
                         con.close()
-                        return self._json({"ok": False, "error": "创建分类失败"})
-                    cid = row["id"]
-                try:
-                    cid = int(cid)
-                except Exception:
-                    con.close()
-                    return self._json({"ok": False, "error": "缺少分类"})
-                row = con.execute("SELECT name FROM collections WHERE id=?", (cid,)).fetchone()
-                if not row:
+                        return self._json({"ok": False, "error": "缺少分类"})
+                if not cids:
                     con.close()
                     return self._json({"ok": False, "error": "分类不存在"})
-                cname = row["name"]
                 valid = []
                 if ids:
                     qs = ",".join("?" * len(ids))
                     valid = [r["id"] for r in con.execute(
                         "SELECT id FROM items WHERE id IN (%s)" % qs, ids).fetchall()]
-                changed = 0
-                if u.path == "/api/collection/remove":
+                results, total_changed = [], 0
+                for c in cids:
+                    row = con.execute("SELECT name FROM collections WHERE id=?",
+                                      (c,)).fetchone()
+                    if not row:
+                        continue
+                    changed = 0
                     for iid in valid:
-                        cur = con.execute(
-                            "DELETE FROM collection_items WHERE collection_id=? AND item_id=?",
-                            (cid, iid))
+                        if removing:
+                            cur = con.execute(
+                                "DELETE FROM collection_items WHERE collection_id=? AND item_id=?",
+                                (c, iid))
+                        else:
+                            cur = con.execute(
+                                "INSERT OR IGNORE INTO collection_items"
+                                "(collection_id,item_id,added_ts) VALUES(?,?,?)",
+                                (c, iid, int(time.time())))
                         changed += max(0, cur.rowcount)
-                else:
-                    for iid in valid:
-                        cur = con.execute(
-                            "INSERT OR IGNORE INTO collection_items(collection_id,item_id,added_ts) VALUES(?,?,?)",
-                            (cid, iid, int(time.time())))
-                        changed += max(0, cur.rowcount)
-                n = con.execute("SELECT COUNT(*) AS n FROM collection_items WHERE collection_id=?",
-                                (cid,)).fetchone()["n"]
+                    n = con.execute("SELECT COUNT(*) AS n FROM collection_items"
+                                    " WHERE collection_id=?", (c,)).fetchone()["n"]
+                    total_changed += changed
+                    results.append({"id": c, "name": row["name"],
+                                    "changed": changed, "count": n})
                 con.commit()
                 con.close()
-                return self._json({"ok": True, "id": cid, "name": cname,
-                                   "changed": changed, "count": n})
+                first = results[0] if results else {"id": None, "name": "", "count": 0}
+                return self._json({"ok": bool(results), "id": first["id"],
+                                   "name": first["name"], "count": first["count"],
+                                   "changed": total_changed,
+                                   "names": [r["name"] for r in results],
+                                   "results": results})
 
             if u.path == "/api/reorder":
                 kind = (body.get("kind") or "").strip()
@@ -1431,67 +2281,268 @@ class Handler(BaseHTTPRequestHandler):
                 title = (body.get("title") or "").strip()
                 if not title:
                     return self._json({"ok": False, "error": "标题不能为空"})
-                author = (body.get("author") or "").strip() or "我的作品"
-                pf = (body.get("platform") or "").strip()
-                pcn = (body.get("platform_cn") or "").strip()
-                if not pf:
-                    pf = "manual"
-                if not pcn:
-                    pcn = {"douyin": "抖音", "xiaohongshu": "小红书", "bilibili": "B站",
-                           "youtube": "YouTube", "x": "X", "instagram": "Instagram",
-                           "weibo": "微博", "telegram": "Telegram", "tiktok": "TikTok"}.get(pf, "手动")
-                typ = (body.get("type") or "图文").strip()
+                typ = (body.get("type") or "").strip()
                 if typ not in ("图文", "视频", "音频"):
-                    typ = "图文"
+                    typ = ""            # 空着：等文件传上来后按实际内容定
+                req_author = (body.get("author") or "").strip()
+                con = db()
+                if req_author and req_author != "我的作品":
+                    # 在某个博主标签下新建 → 归这个博主，并沿用它的平台和稳定作者 ID，
+                    # 否则侧栏会裂成两个同名博主，按 author_key 过滤也匹配不上
+                    ident = resolve_author_identity(
+                        con, req_author,
+                        (body.get("platform") or "").strip())
+                    # 前端明确带过来的身份优先（刚建的空博主 DB 里还查不到）
+                    if (body.get("author_id") or "").strip():
+                        ident["author_id"] = body["author_id"].strip()
+                    if (body.get("author_url") or "").strip():
+                        ident["author_url"] = body["author_url"].strip()
+                    if (body.get("platform") or "").strip():
+                        ident["platform"] = body["platform"].strip()
+                        ident["platform_cn"] = (body.get("platform_cn") or "").strip() \
+                            or platform_cn_for(ident["platform"])
+                else:
+                    # 只有「全部」下新建才归「我的作品」
+                    ident = {"author": "我的作品", "author_id": "", "author_url": "",
+                             "platform": "manual", "platform_cn": "手动"}
+                pf = ident["platform"] or "manual"
+                pcn = ident["platform_cn"] or platform_cn_for(pf)
                 safe = re.sub(r'[\\/:*?"<>|]', "_", title)[:50]
                 safe = safe + "_" + str(int(time.time() * 1000))[-6:]
                 stamp = time.strftime("%Y%m%d")
-                folder = ARCHIVE / pcn / author / ("%s_%s" % (stamp, safe))
+                folder = unique_dest(author_dir_for(pcn, ident["author"])
+                                     / ("%s_%s" % (stamp, safe)))
                 folder.mkdir(parents=True, exist_ok=True)
-                con = db()
                 cur = con.execute("""INSERT INTO items
                     (platform, platform_cn, author, author_id, author_url, title, item_id, type,
                      created_ts, saved_ts, file_count, folder, source_url)
                     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                    (pf, pcn, author,
-                     (body.get("author_id") or "").strip(),
-                     (body.get("author_url") or "").strip(), title,
-                     "manual_%d" % int(time.time()*1000), typ,
+                    (pf, pcn, ident["author"], ident["author_id"], ident["author_url"],
+                     title, "manual_%d" % int(time.time()*1000), typ or "图文",
                      int(time.time()), int(time.time()), 0, str(folder), ""))
                 con.commit()
                 new_id = cur.lastrowid
+                # 记到 custom_authors，这样作品为 0 时博主也留在侧栏
+                try:
+                    con.execute("""CREATE TABLE IF NOT EXISTS custom_authors(
+                        name TEXT, platform TEXT, created_ts INTEGER,
+                        PRIMARY KEY(name, platform))""")
+                    con.execute("INSERT OR IGNORE INTO custom_authors(name, platform, created_ts)"
+                                " VALUES (?,?,?)",
+                                (ident["author"], pf, int(time.time())))
+                    con.commit()
+                except Exception:
+                    pass
                 con.close()
+                _PLAT_TABLES["ts"] = 0.0
+                try:
+                    export_csv()
+                except Exception:
+                    pass
                 return self._json({"ok": True, "id": new_id, "folder": str(folder),
-                                   "author": author, "platform": pf, "platform_cn": pcn})
+                                   "author": ident["author"], "platform": pf,
+                                   "platform_cn": pcn, "type": typ or "图文",
+                                   "author_id": ident["author_id"],
+                                   "author_url": ident["author_url"],
+                                   "author_key": ident["author_id"] or ident["author"]})
 
             if u.path == "/api/rename_author":
                 old = (body.get("old") or "").strip()
                 new = (body.get("new") or "").strip()
                 if not old or not new:
                     return self._json({"ok": False, "error": "名字不能为空"})
+                # 精确圈定要改的那一组：同名博主（手动建的 + 平台抓到的）不能一起改
+                src_key = (body.get("source_author_key") or body.get("author_key")
+                           or "").strip() or old
+                src_plat = (body.get("source_platform") or body.get("platform") or "").strip()
+                on_conflict = (body.get("on_conflict") or "").strip()
                 con = db()
-                row = con.execute("SELECT author_id FROM items WHERE author=? AND author_id<>'' LIMIT 1", (old,)).fetchone()
-                aid = row["author_id"] if row else ""
-                if aid:
-                    # 以稳定 ID 为准：改名会影响这个博主的全部作品
-                    n = con.execute("UPDATE items SET author=? WHERE author_id=?", (new, aid)).rowcount
-                else:
-                    n = con.execute("UPDATE items SET author=? WHERE author=?", (new, old)).rowcount
+                if new != old and on_conflict != "merge":
+                    conflict = find_author_conflicts(con, new, src_key, src_plat)
+                    if conflict:
+                        con.close()
+                        # 不默默新建第二个同名博主：把冲突详情交给前端，让用户选合并还是换名
+                        return self._json({
+                            "ok": False, "error": "already_exists",
+                            "message": "已经有博主叫「%s」了" % new,
+                            "conflict": conflict})
                 try:
-                    con.execute("UPDATE custom_authors SET name=? WHERE name=?", (new, old))
-                except Exception:
-                    pass
-                con.commit()
+                    if on_conflict == "merge" and new != old:
+                        tgt_key = (body.get("target_author_key") or "").strip() or new
+                        tgt_plat = (body.get("target_platform") or "").strip()
+                        res = merge_author_group(con, old, new, src_key, src_plat,
+                                                 tgt_key, tgt_plat)
+                        merged = True
+                    else:
+                        res = rename_author_group(con, old, new, src_key, src_plat)
+                        merged = False
+                    con.commit()
+                except Exception as e:
+                    con.rollback()
+                    con.close()
+                    return self._json({"ok": False, "error": str(e)})
                 con.close()
+                _PLAT_TABLES["ts"] = 0.0
                 pins = load_pins()
-                if old in (pins.get("authors") or []):
-                    pins["authors"] = [new if x == old else x for x in pins["authors"]]
+                alist = pins.get("authors") or []
+                if old in alist:
+                    if new in alist:
+                        pins["authors"] = [x for x in alist if x != old]
+                    else:
+                        pins["authors"] = [new if x == old else x for x in alist]
                     save_pins(pins)
                 try:
                     export_csv()
                 except Exception:
                     pass
-                return self._json({"ok": True, "count": n})
+                ident = {"author": new}
+                return self._json({"ok": True, "count": res["count"],
+                                   "moved": res["moved"], "merged": merged,
+                                   "author": new,
+                                   "target_author_id": (body.get("target_author_key")
+                                                        or "") if merged else ""})
+
+            # ---------- 把作品挪到 / 复制到另一个博主 ----------
+            if u.path == "/api/move_to_author":
+                raw_ids = (body.get("item_ids") or body.get("ids")
+                           or ([body["id"]] if body.get("id") else []))
+                if not isinstance(raw_ids, list):
+                    return self._json({"ok": False, "error": "参数不完整"})
+                ids = []
+                for x in raw_ids:
+                    try:
+                        ids.append(int(x))
+                    except Exception:
+                        pass
+                target = (body.get("author") or "").strip()
+                if not ids or not target:
+                    return self._json({"ok": False, "error": "缺少作品或博主"})
+                mode = "copy" if (body.get("mode") or "").strip() == "copy" else "move"
+                con = db()
+                ident = resolve_author_identity(con, target,
+                                                (body.get("platform") or "").strip())
+                if (body.get("author_id") or "").strip():
+                    ident["author_id"] = body["author_id"].strip()
+                if (body.get("author_url") or "").strip():
+                    ident["author_url"] = body["author_url"].strip()
+                if (body.get("platform") or "").strip():
+                    ident["platform"] = body["platform"].strip()
+                if (body.get("platform_cn") or "").strip():
+                    ident["platform_cn"] = body["platform_cn"].strip()
+                ident["platform"] = ident["platform"] or "manual"
+                ident["platform_cn"] = ident["platform_cn"] or platform_cn_for(ident["platform"])
+                done, failed, new_ids, notes = 0, [], [], []
+                qs = ",".join("?" * len(ids))
+                rows = con.execute("SELECT * FROM items WHERE id IN (%s)" % qs, ids).fetchall()
+                for r in rows:
+                    try:
+                        new_folder = move_item_folder(r, ident, mode)
+                        if mode == "copy":
+                            # 复制：新插一条记录，原记录原封不动
+                            info = refresh_item_media(con, r["id"], r["folder"])
+                            cur = con.execute("""INSERT INTO items
+                                (platform, platform_cn, author, author_id, author_url,
+                                 title, item_id, type, created_ts, saved_ts,
+                                 file_count, folder, source_url,
+                                 digg, comment, collect, share)
+                                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                                (ident["platform"], ident["platform_cn"], ident["author"],
+                                 ident["author_id"], ident["author_url"], r["title"],
+                                 "%s_c%d" % (r["item_id"], int(time.time() * 1000)),
+                                 r["type"] or info.get("type") or "图文",
+                                 r["created_ts"] or int(time.time()), int(time.time()),
+                                 info["file_count"], str(new_folder), r["source_url"] or "",
+                                 r["digg"] or 0, r["comment"] or 0,
+                                 r["collect"] or 0, r["share"] or 0))
+                            nid = cur.lastrowid
+                            new_ids.append(nid)
+                            # 分类关系也带过去
+                            try:
+                                for c in con.execute(
+                                        "SELECT collection_id FROM collection_items WHERE item_id=?",
+                                        (r["id"],)).fetchall():
+                                    con.execute("INSERT OR IGNORE INTO collection_items"
+                                                "(collection_id,item_id,added_ts) VALUES(?,?,?)",
+                                                (c["collection_id"], nid, int(time.time())))
+                            except Exception:
+                                pass
+                        else:
+                            set_item_identity(con, r["id"], ident, new_folder)
+                            refresh_item_media(con, r["id"], new_folder)
+                            new_ids.append(r["id"])
+                        done += 1
+                    except Exception as e:
+                        failed.append({"id": r["id"], "error": str(e)})
+                        notes.append("%s：%s" % (r["title"] or r["id"], e))
+                con.commit()
+                con.close()
+                _PLAT_TABLES["ts"] = 0.0
+                try:
+                    export_csv()
+                except Exception:
+                    pass
+                return self._json({"ok": not failed, "done": done, "failed": failed,
+                                   "ids": new_ids, "mode": mode,
+                                   "author": ident["author"],
+                                   "platform": ident["platform"],
+                                   "platform_cn": ident["platform_cn"],
+                                   "folder": str(author_dir_for(ident["platform_cn"],
+                                                                ident["author"])),
+                                   "notes": notes})
+
+            # ---------- 重新扫描归档目录：找回被挪走的作品 ----------
+            if u.path == "/api/rescan":
+                only = body.get("id")
+                try:
+                    stats = repair_index(only_id=int(only) if only else None)
+                except Exception as e:
+                    return self._json({"ok": False, "error": str(e)})
+                stats["ok"] = True
+                return self._json(stats)
+
+            # ---------- 手动给一条作品指个新目录 ----------
+            if u.path == "/api/item_relocate":
+                iid = body.get("id")
+                raw = (body.get("path") or "").strip()
+                if not iid or not raw:
+                    return self._json({"ok": False, "error": "参数不完整"})
+                p = Path(raw).expanduser()
+                if not p.exists():
+                    return self._json({"ok": False, "error": "目录不存在"})
+                if not p.is_dir():
+                    return self._json({"ok": False, "error": "这不是一个目录"})
+                if not resolve_under_archive(p):
+                    return self._json({"ok": False, "error": "只能指向归档目录里面"})
+                con = db()
+                row = con.execute("SELECT * FROM items WHERE id=?", (int(iid),)).fetchone()
+                if not row:
+                    con.close()
+                    return self._json({"ok": False, "error": "作品不存在"})
+                ident = path_identity(p)
+                info = refresh_item_media(con, row["id"], p)
+                fields = {"folder": str(p), "file_count": info["file_count"]}
+                if info["type"]:
+                    fields["type"] = info["type"]
+                if ident:
+                    other = resolve_author_identity(con, ident["author"],
+                                                    ident["platform"] or "")
+                    fields.update({"author": ident["author"],
+                                   "platform_cn": ident["platform_cn"],
+                                   "author_id": other["author_id"],
+                                   "author_url": other["author_url"]})
+                    if ident["platform"]:
+                        fields["platform"] = ident["platform"]
+                _set_fields(con, row["id"], fields)
+                con.commit()
+                con.close()
+                _PLAT_TABLES["ts"] = 0.0
+                try:
+                    export_csv()
+                except Exception:
+                    pass
+                return self._json({"ok": True, "folder": str(p),
+                                   "files": info["file_count"], "type": info["type"],
+                                   "author": fields.get("author")})
 
             if u.path == "/api/rename_platform":
                 pf = (body.get("platform") or "").strip()
@@ -1597,31 +2648,50 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"ok": True, "deleted": done, "failed": failed})
             if u.path == "/api/prune":
                 con = db()
-                rows = con.execute("SELECT id, folder, platform, saved_ts FROM items").fetchall()
-                removed = 0
+                rows = con.execute("SELECT * FROM items").fetchall()
+                index = scan_folder_index()
+                claimed = claimed_folders(con)
+                removed, rescued, skipped = 0, 0, 0
                 for row in rows:
-                    pth = Path(row["folder"])
-                    # 保护手动条目和刚创建的条目（1小时内）
-                    if row["platform"] == "manual":
+                    # 手工建的作品（含刚建还没放文件的空作品）一律不碰
+                    iid = str(row["item_id"] or "")
+                    if (row["platform"] or "") == "manual" or iid.startswith(
+                            ("manual_", "adopted_")):
+                        skipped += 1
                         continue
                     if row["saved_ts"] and (time.time() - row["saved_ts"]) < 3600:
+                        skipped += 1          # 刚归档的，可能还在写文件
                         continue
-                    empty = (not pth.exists()) or (not any(pth.iterdir()))
-                    if empty:
-                        con.execute("DELETE FROM collection_items WHERE item_id=?", (row["id"],))
+                    pth = Path(row["folder"] or "")
+                    if pth.exists():
+                        # 目录在：只有真的一个文件都没有才算失效
                         try:
-                            con.execute("DELETE FROM analysis WHERE item_id=?", (row["id"],))
+                            if any(pth.iterdir()):
+                                continue
                         except Exception:
-                            pass
-                        con.execute("DELETE FROM items WHERE id=?", (row["id"],))
-                        removed += 1
+                            continue
+                    else:
+                        # 目录不见了：先试着按名字找回来，找得回就别删
+                        found, _why = relocate_row(con, row, index, claimed)
+                        if found:
+                            rescued += 1
+                            continue
+                    con.execute("DELETE FROM collection_items WHERE item_id=?", (row["id"],))
+                    try:
+                        con.execute("DELETE FROM analysis WHERE item_id=?", (row["id"],))
+                    except Exception:
+                        pass
+                    con.execute("DELETE FROM items WHERE id=?", (row["id"],))
+                    removed += 1
                 con.commit()
                 con.close()
+                _PLAT_TABLES["ts"] = 0.0
                 try:
                     export_csv()
                 except Exception:
                     pass
-                return self._json({"ok": True, "removed": removed})
+                return self._json({"ok": True, "removed": removed,
+                                   "rescued": rescued, "skipped": skipped})
             if u.path == "/api/check_dir":
                 raw = (body.get("path") or "").strip()
                 if not raw:
@@ -1771,6 +2841,36 @@ class Handler(BaseHTTPRequestHandler):
                         except Exception:
                             pass
                 return self._json({"ok": True, "login": login_status_public()})
+            if u.path == "/api/source/logout":
+                platform = (body.get("platform") or "").strip()
+                if platform not in ("douyin", "xhs"):
+                    return self._json({"ok": False, "error": "不支持的平台"}, 400)
+                # 停掉 headless Chrome，清掉 profile 里的 cookies，再重启
+                cleanup_stale_downloader()
+                time.sleep(1.0)
+                profile = BASE / "vendor" / "douyin-ai-video-downloader" / ".chrome-profile"
+                for fname in ("Cookies", "Cookies-journal", "Login Data", "Login Data-journal",
+                              "Web Data", "Web Data-journal"):
+                    f = profile / "Default" / fname
+                    try:
+                        if f.exists():
+                            f.unlink()
+                    except Exception:
+                        pass
+                # 清 Local Storage / Session Storage
+                for dname in ("Local Storage", "Session Storage"):
+                    d = profile / "Default" / dname
+                    try:
+                        if d.exists():
+                            import shutil
+                            shutil.rmtree(str(d), ignore_errors=True)
+                    except Exception:
+                        pass
+                try:
+                    start_douyin_chrome()
+                except Exception:
+                    pass
+                return self._json({"ok": True, "message": "已退出登录"})
             if u.path == "/api/archive_batch":
                 raw = body.get("urls") or body.get("text") or ""
                 if isinstance(raw, list):
@@ -1853,11 +2953,127 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def _migrate_manual_types():
+    """历史遗留：早期手工作品被统一写成「图文」。
+
+    类型现在由目录里的实际文件决定（见 refresh_item_media），不再一刀切改回去，
+    否则用户刚选的「视频」每次重启都会被抹掉。空目录保持原样。
+    """
     try:
         con = db()
-        con.execute("UPDATE items SET type='图文' WHERE platform='manual' AND type='视频'")
+        rows = con.execute("SELECT id, folder FROM items WHERE platform='manual'"
+                           " OR item_id LIKE 'manual_%'").fetchall()
+        n = 0
+        for r in rows:
+            info = refresh_item_media(con, r["id"], r["folder"] or "")
+            if info["type"]:
+                n += 1
         con.commit()
         con.close()
+        return n
+    except Exception:
+        return 0
+
+
+def _listener_pid(port):
+    """占用 TCP 端口的进程 PID；查不到返回 None"""
+    lsof = shutil.which("lsof") or "/usr/sbin/lsof"
+    try:
+        r = subprocess.run([lsof, "-ti", "tcp:%d" % port, "-sTCP:LISTEN"],
+                           capture_output=True, text=True, timeout=10)
+    except Exception:
+        return None
+    for tok in (r.stdout or "").split():
+        try:
+            pid = int(tok)
+        except ValueError:
+            continue
+        if pid and pid != os.getpid():
+            return pid
+    return None
+
+
+def _is_our_server(port):
+    """端口上应答的是不是 media-archive 自己的 server（而不是别的程序）"""
+    try:
+        import urllib.request
+        with urllib.request.urlopen("http://127.0.0.1:%d/api/ping" % port, timeout=2) as r:
+            d = json.loads(r.read().decode("utf-8", "ignore"))
+        return d.get("app") == "media-archive"
+    except Exception:
+        return False
+
+
+def _evict_pid(pid, grace=8.0):
+    """礼貌地请旧实例让位：SIGTERM → 等 → SIGKILL"""
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except Exception:
+        return True
+    deadline = time.time() + grace
+    while time.time() < deadline:
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            return True
+        time.sleep(0.25)
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except Exception:
+        pass
+    time.sleep(0.5)
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return True
+    return False
+
+
+def acquire_port(port, timeout=30.0):
+    """先绑定端口，再谈别的。
+
+    这一步必须在任何有副作用的初始化之前完成：以前的顺序是
+    「杀 Chrome → 起 Chrome → 绑端口」，端口被占时进程直接崩掉，
+    但 Chrome 已经被杀过一遍了。launchd 的 KeepAlive 又会每隔约 10 秒
+    把这个流程重跑一次 —— 于是常驻 Chrome 被反复杀死重启，
+    所有正在跑的抖音任务的 CDP 连接被掐断，表现就是「抖音爬取失败率极高」。
+
+    返回 (httpd, 失败原因)。失败时不会留下任何副作用。
+    """
+    deadline = time.time() + timeout
+    while True:
+        try:
+            return ThreadingHTTPServer(("127.0.0.1", port), Handler), ""
+        except OSError as e:
+            if e.errno not in (errno.EADDRINUSE, errno.EADDRNOTAVAIL, 48):
+                raise
+            if not _is_our_server(port):
+                squatter = _listener_pid(port)
+                return None, ("端口 %d 被其它程序占用%s，media-archive 没有启动"
+                              % (port, "（PID %s）" % squatter if squatter else ""))
+            # 端口上是上一代 media-archive（孤儿实例）：接管它，
+            # 让 launchd 管的这一份当家，否则会无限「拉起→撞端口→退出」。
+            squatter = _listener_pid(port)
+            if squatter:
+                print("接管端口 %d：结束旧实例 PID %d" % (port, squatter), file=sys.stderr)
+                _evict_pid(squatter)
+            if time.time() >= deadline:
+                return None, "端口 %d 一直被旧实例占用，接管超时" % port
+            time.sleep(0.4)
+
+
+def _write_pidfile(pid_file):
+    try:
+        pid_file.parent.mkdir(parents=True, exist_ok=True)
+        pid_file.write_text(str(os.getpid()), "utf-8")
+    except Exception:
+        pass
+
+
+def _clear_pidfile(pid_file):
+    """只删自己写的那份：别的实例接管过之后，这里已经不是自己的 PID 了"""
+    try:
+        if pid_file.exists() and pid_file.read_text("utf-8").strip() == str(os.getpid()):
+            pid_file.unlink()
     except Exception:
         pass
 
@@ -1867,6 +3083,27 @@ def main():
     for a in sys.argv[1:]:
         if a.startswith("--port="):
             port = int(a.split("=", 1)[1])
+
+    # 1) 先抢端口。抢不到就安静退出，绝不碰 Chrome / 数据库。
+    srv, why = acquire_port(port)
+    if srv is None:
+        print(why, file=sys.stderr)
+        return 1
+
+    # 2) 端口到手了，才做初始化
+    pid_file = pid_file_for(port)
+    _write_pidfile(pid_file)
+
+    def _shutdown(signum, frame):
+        # launchctl kickstart -k / 接管旧实例时能干净退出，别留下半截状态
+        threading.Thread(target=srv.shutdown, daemon=True).start()
+
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            signal.signal(sig, _shutdown)
+        except Exception:
+            pass
+
     ARCHIVE.mkdir(parents=True, exist_ok=True)
     _migrate_manual_types()
     try:
@@ -1878,19 +3115,26 @@ def main():
         canonicalize_authors()
     except Exception as e:
         print("作者 ID 归一化失败：%s" % e)
-    cleanup_stale_downloader()
+    # 3) 常驻 Chrome：健康就复用，只有僵尸状态才清理重启
     try:
-        start_douyin_chrome()
-    except Exception:
-        pass
-    srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+        ensure_douyin_chrome()
+    except Exception as e:
+        print("[warn] 抖音 Chrome 启动失败：%s" % e, file=sys.stderr)
+
     print("media-archive Web 端：http://127.0.0.1:%d" % port)
     print("归档目录：%s" % ARCHIVE)
     try:
-        srv.serve_forever()
+        srv.serve_forever(poll_interval=0.3)
     except KeyboardInterrupt:
         print("\n已停止")
+    finally:
+        try:
+            srv.server_close()
+        except Exception:
+            pass
+        _clear_pidfile(pid_file)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

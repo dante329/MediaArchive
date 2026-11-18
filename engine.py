@@ -6,6 +6,7 @@ media-archive 统一归档引擎
     engine.py <url>              # 解析并归档
     engine.py --clip             # 读取剪贴板里的链接
     engine.py --dry-run <url>    # 只解析，不下载
+    engine.py --force <url>      # 已归档过也强制重新下载
     engine.py --list [N]         # 列出最近归档
     engine.py --open             # 打开归档目录
 
@@ -63,8 +64,20 @@ TG_DIR = HOME / ".media-archive"
 TG_CFG = TG_DIR / "tg.json"
 TG_SESSION = TG_DIR / "tg"
 
+def _chrome_version():
+    try:
+        out = subprocess.check_output(
+            ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "--version"],
+            timeout=5, stderr=subprocess.DEVNULL).decode().strip()
+        m = re.search(r"(\d+\.\d+\.\d+\.\d+)", out)
+        if m:
+            return m.group(1)
+    except Exception:
+        pass
+    return "157.0.0.0"
+
 UA_DESK = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
-           "(KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36")
+           "(KHTML, like Gecko) Chrome/%s Safari/537.36" % _chrome_version())
 UA_MOBILE = ("Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 "
              "(KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1")
 
@@ -354,31 +367,97 @@ def empty_result(platform, cn, url):
             "files": [], "extra": {}}
 
 
+# ---------------------------------------------------------------- 常驻 Chrome（CDP）
+CDP_PORT = 9222
+
+
+def cdp_up(port=CDP_PORT, timeout=2.0):
+    """常驻 Chrome 的调试端口是否可用"""
+    try:
+        with urllib.request.urlopen("http://127.0.0.1:%d/json/version" % port,
+                                    timeout=timeout) as r:
+            return r.status == 200
+    except Exception:
+        return False
+
+
+# 向后兼容的旧名字
+douyin_cdp_up = cdp_up
+
+CDP_DOWN_HINT = ("常驻 Chrome 没有运行（调试端口 %d 无应答）；"
+                 "请在设置里重新登录对应平台，或重启 media-archive 服务" % CDP_PORT)
+
+
+def run_cdp_tool(label, cmd, out, tries=3, timeout=180, step_prefix="解析"):
+    """跑一个借常驻 Chrome 抓数据的 node 工具，带重试，并保证错误信息有意义。
+
+    这类工具都遵守同一个约定：要么写出 out 并以 0 退出，要么非 0 退出并在
+    stderr 说清原因。以前它们可能「一声不响地 exit 0」——CDP 连接被掐断时
+    pending 的请求永远不落地，Node 事件循环空掉就正常退出了。上层只看
+    out 在不在，于是用户拿到的是一条空的失败信息，根本没法排查。
+    """
+    out = Path(out)
+    if not cdp_up():
+        raise RuntimeError("%s失败：%s" % (label, CDP_DOWN_HINT))
+    errors = []
+    for attempt in range(1, tries + 1):
+        _report("parse", 0, 0,
+                step=(step_prefix + "中" if attempt == 1
+                      else "%s重试 %d/%d" % (step_prefix, attempt, tries)))
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            r = None
+            errors.append("%s超时（%d 秒，页面可能要求登录/正在验证）" % (label, timeout))
+        detail = ""
+        if r is not None:
+            detail = (((r.stderr or "") + (r.stdout or "")).strip())[-400:]
+        data = None
+        try:
+            if out.exists():
+                data = json.loads(out.read_text("utf-8"))
+        except Exception as e:
+            errors.append("%s结果不是合法 JSON：%s" % (label, e))
+        finally:
+            try:
+                if out.exists():
+                    out.unlink()
+            except Exception:
+                pass
+        if data is not None:
+            return data
+        if not detail:
+            # 子进程一声不响地退出：几乎都是 CDP 连接被掐断（常驻 Chrome 被重启）
+            detail = ("%s进程异常退出（没有任何输出）：常驻 Chrome 的调试连接被中断，"
+                      "通常是浏览器被重启或被风控踢掉" % label)
+            if not cdp_up():
+                detail += "；当前调试端口 %d 已经没有应答" % CDP_PORT
+        errors.append(detail)
+        if attempt < tries:
+            time.sleep(2 * attempt)
+            if not cdp_up():
+                raise RuntimeError("%s失败：%s。最近一次错误：%s"
+                                   % (label, CDP_DOWN_HINT, errors[-1][:200]))
+    raise RuntimeError("%s失败（已重试 %d 次）：%s" % (label, tries, errors[-1][:300]))
+
+
 # ---------------------------------------------------------------- 抖音
 def parse_douyin(url, wait=90, headed=False):
-    """抖音：页面内 API（页面 SDK 签名），直接拿详情，不再开播放器等媒体。"""
+    """抖音：页面内 API（页面 SDK 签名），直接拿详情，不再开播放器等媒体。
+
+    解析要借常驻 Chrome 的 CDP 连接，而这个 Chrome 是所有抖音任务共用的：
+    它被重启/被风控打断时，单次解析会失败但重试一次往往就好了。
+    重试和错误信息由 run_cdp_tool 统一负责。
+    """
     res = empty_result("douyin", "抖音", url)
     if not NODE:
         raise RuntimeError("缺少 node，无法调用抖音页面内 API")
-    out = Path("/tmp/ma-douyin-%d.json" % int(time.time() * 1000))
-    cmd = [NODE, str(BASE / "tools" / "douyin_api.js"), "detail", url, str(out), "9222"]
+    out = Path("/tmp/ma-douyin-%d-%d.json" % (os.getpid(), int(time.time() * 1000)))
+    cmd = [NODE, str(BASE / "tools" / "douyin_api.js"), "detail", url, str(out), str(CDP_PORT)]
     log("抖音：页面内 API 解析…")
-    _report("parse", 0, 0, step="解析中")
-    try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-    except subprocess.TimeoutExpired:
-        raise RuntimeError("抖音解析超时（页面可能要求登录/验证）")
-    if not out.exists():
-        raise RuntimeError("抖音解析失败：%s" % (((r.stderr or "") + (r.stdout or ""))[-400:]))
-    try:
-        d = json.loads(out.read_text("utf-8"))
-    finally:
-        try:
-            out.unlink()
-        except Exception:
-            pass
+    d = run_cdp_tool("抖音解析", cmd, out)
     if not d.get("id"):
-        raise RuntimeError("抖音解析没有返回作品")
+        raise RuntimeError("抖音解析没有返回作品（可能需要登录或过验证）")
     total = int(d.get("data_size") or 0)
     st = d.get("stats") or {}
     res.update({
@@ -393,12 +472,15 @@ def parse_douyin(url, wait=90, headed=False):
         "stats": {"digg": st.get("digg_count"), "comment": st.get("comment_count"),
                   "collect": st.get("collect_count"), "share": st.get("share_count")},
         "extra": {"video": d.get("video") or "", "images": d.get("images") or [],
+                  "live_video": d.get("live_video") or "",
+                  "image_live": d.get("image_live") or [],
                   "cover": d.get("cover") or "", "duration": (d.get("duration") or 0) / 1000.0,
                   "video_size": total},
     })
     if total:
         _report("parse", 0, total, step="解析完成", filesize=total)
-    log("解析完成：抖音 ｜ %s ｜ %s" % (res["author"] or "?", res["type"]))
+    # save() 里还会再打一条「解析完成：平台｜博主｜类型」，这里只报耗时相关的信息
+    log("抖音解析完成：%s ｜ %s ｜ %s" % (res["aweme_id"], res["author"] or "?", res["type"]))
     return res
 
 
@@ -616,21 +698,9 @@ def parse_browser(url):
     res = empty_result(key, cn, url)
     if not NODE:
         raise RuntimeError("缺少 node，无法使用浏览器兜底")
-    out = Path("/tmp/ma-browser-%d.json" % int(time.time() * 1000))
-    cmd = [NODE, str(BASE / "tools" / "browser_media.js"), url, str(out), "9222"]
-    try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-    except subprocess.TimeoutExpired:
-        raise RuntimeError("浏览器兜底超时（页面可能要求登录/正在验证）")
-    if not out.exists():
-        raise RuntimeError("浏览器兜底失败：%s" % (((r.stderr or "") + (r.stdout or ""))[-300:]))
-    try:
-        data = json.loads(out.read_text("utf-8"))
-    finally:
-        try:
-            out.unlink()
-        except Exception:
-            pass
+    out = Path("/tmp/ma-browser-%d-%d.json" % (os.getpid(), int(time.time() * 1000)))
+    cmd = [NODE, str(BASE / "tools" / "browser_media.js"), url, str(out), str(CDP_PORT)]
+    data = run_cdp_tool("浏览器兜底", cmd, out, tries=2, timeout=150)
     videos = [u for u in (data.get("videos") or []) if u and not u.startswith("blob:")]
     images = [u for u in (data.get("images") or []) if u and not u.startswith("blob:")]
     og = data.get("ogImage") or ""
@@ -967,12 +1037,54 @@ def download_media(r, folder):
             dest = folder / "video.mp4"
             if download(video, dest, referer="https://www.douyin.com/"):
                 out.append(str(dest))
-        for i, u in enumerate(ex.get("images") or [], 1):
-            dest = folder / ("%02d.jpg" % i)
-            if download(u, dest, referer="https://www.douyin.com/"):
-                out.append(str(dest))
+        images = ex.get("images") or []
+        live_video = ex.get("live_video") or ""
+        image_live = ex.get("image_live") or []
+        mode = (CFG.get("livephoto") or {}).get("mode", "both")
+        if images:
+            pairs = []
+            for i, u in enumerate(images, 1):
+                dest = folder / ("%02d.jpg" % i)
+                if download(u, dest, referer="https://www.douyin.com/"):
+                    out.append(str(dest))
+                    # 实况伴生视频：优先用这张图自己的；只有单图作品才退回作品级的那一个。
+                    # （以前的实现把作品级 video 当成每张图的实况，而抖音图文的作品级
+                    #   video 其实是背景音乐 mp3 —— 于是每张图都存了一份 mp3，
+                    #   前端把这些「实况照片」全播放成了黑屏+音乐。）
+                    lv_url = ""
+                    if i - 1 < len(image_live):
+                        lv_url = image_live[i - 1] or ""
+                    if not lv_url and live_video and len(images) == 1:
+                        lv_url = live_video
+                    if lv_url and mode in ("both", "live"):
+                        lv = folder / ("%02d_live.mp4" % i)
+                        if download(lv_url, lv, referer="https://www.douyin.com/"):
+                            out.append(str(lv))
+                            pairs.append((dest, lv, i))
+            # 实况照片模式：合成 jpg + mov 配对
+            if mode == "live" and pairs:
+                try:
+                    import livephoto
+                    for img, vid, idx in pairs:
+                        ni, nv = livephoto.make_pair(Path(img), Path(vid), folder, "%02d" % idx)
+                        out.append(str(nv))
+                        try:
+                            Path(vid).unlink()
+                        except Exception:
+                            pass
+                        out = [x for x in out if x != str(vid)]
+                    log("已合成 %d 组抖音实况照片" % len(pairs))
+                except Exception as e:
+                    log("抖音实况照片合成失败（保留原始 mp4）：%s" % e)
         if out:
             return out
+        # 一个文件都没落地：把原因说清楚，别只丢一句「没有下载到任何文件」
+        if video and not images:
+            raise RuntimeError("抖音视频下载失败（直链可能已过期或需要登录）；"
+                               "作品 ID %s" % (r.get("aweme_id") or "?"))
+        if images:
+            raise RuntimeError("抖音图文的 %d 张图片全部下载失败（直链可能已过期或触发风控）；"
+                               "作品 ID %s" % (len(images), r.get("aweme_id") or "?"))
         return move_files(r["files"], folder) if r.get("files") else []
     if r["platform"] == "xiaohongshu":
         ex = r.get("extra") or {}
@@ -1022,7 +1134,7 @@ def download_media(r, folder):
     return download_generic(r, folder)
 
 
-def save(r, dry_run=False):
+def save(r, dry_run=False, force=False):
     log("解析完成：%s ｜ %s ｜ %s" % (r["platform_cn"], r["author"] or "?", r["type"]))
     if dry_run:
         print(json.dumps(r, ensure_ascii=False, indent=2))
@@ -1037,30 +1149,33 @@ def save(r, dry_run=False):
         pass
     if not check_disk_space(est, folder.parent if folder.parent.exists() else HOME):
         raise RuntimeError("磁盘空间不足，已中止归档")
-    # 已存在且文件还在 → 完全不重复下载
-    try:
-        _c = db_init()
-        _ex = _c.execute("SELECT title, folder FROM items WHERE platform=? AND item_id=?",
-                         (r["platform"], r["aweme_id"])).fetchone()
-        _c.close()
-        if _ex:
-            # db_init() 返回的 row 是 tuple，不是 dict
-            old_title = (_ex[0] or r["title"])
-            old_folder = Path(_ex[1] or "")
-            has_files = False
-            if old_folder.exists():
-                has_files = any(
-                    f for f in old_folder.iterdir()
-                    if f.is_file() and f.suffix.lower() not in (".json", ".txt")
-                    and not f.name.endswith(".poster.jpg"))
-            if has_files:
-                log("已存在：%s，跳过下载" % old_title)
-                DUP_FLAG[0] = True
-                print("EXIST_SKIP	" + old_title, flush=True)
-                return str(old_folder)
-            log("记录存在但文件缺失，重新下载：%s" % old_title)
-    except Exception as e:
-        log("已存在检查异常（继续下载）：%s" % e)
+    # 已存在且文件还在 → 完全不重复下载（--force 时照下不误）
+    if force:
+        log("--force：跳过已存在检查，强制重新下载")
+    else:
+        try:
+            _c = db_init()
+            _ex = _c.execute("SELECT title, folder FROM items WHERE platform=? AND item_id=?",
+                             (r["platform"], r["aweme_id"])).fetchone()
+            _c.close()
+            if _ex:
+                # db_init() 返回的 row 是 tuple，不是 dict
+                old_title = (_ex[0] or r["title"])
+                old_folder = Path(_ex[1] or "")
+                has_files = False
+                if old_folder.exists():
+                    has_files = any(
+                        f for f in old_folder.iterdir()
+                        if f.is_file() and f.suffix.lower() not in (".json", ".txt")
+                        and not f.name.endswith(".poster.jpg"))
+                if has_files:
+                    log("已存在：%s，跳过下载" % old_title)
+                    DUP_FLAG[0] = True
+                    print("EXIST_SKIP	" + old_title, flush=True)
+                    return str(old_folder)
+                log("记录存在但文件缺失，重新下载：%s" % old_title)
+        except Exception as e:
+            log("已存在检查异常（继续下载）：%s" % e)
     files = download_media(r, folder)
     if not files:
         raise RuntimeError("没有下载到任何文件")
@@ -1142,6 +1257,7 @@ def main():
         return 0
     dry = "--dry-run" in args
     headed = "--headed" in args
+    force = "--force" in args
     wait = 90
     for a in args:
         if a.startswith("--wait="):
@@ -1163,29 +1279,31 @@ def main():
     log("目标：%s%s" % (url, _proxy_display))
 
     # 解析之前先按原始链接查一遍：命中就秒回，不用启动浏览器
-    try:
-        _c = db_init()
-        _hit = _c.execute(
-            "SELECT title, folder FROM items WHERE source_url=?", (url,)).fetchone()
-        _c.close()
-        if _hit:
-            _f = Path(_hit[1] or "")
-            _alive = _f.exists() and any(
-                x for x in _f.iterdir()
-                if x.is_file() and x.suffix.lower() not in (".json", ".txt")
-                and not x.name.endswith(".poster.jpg"))
-            if _alive:
-                log("已存在：%s，直接跳过（未解析）" % (_hit[0] or "该作品"))
-                print("EXIST_SKIP\t" + (_hit[0] or ""), flush=True)
-                if want_notify("exists"):
-                    notify("已存在", _hit[0] or "该作品")
-                return 0
-    except Exception as e:
-        log("URL 预检异常（继续）：%s" % e)
+    # --force 是用户明确说「我就是要重下」，预检必须让路，否则 --force 形同虚设
+    if not force:
+        try:
+            _c = db_init()
+            _hit = _c.execute(
+                "SELECT title, folder FROM items WHERE source_url=?", (url,)).fetchone()
+            _c.close()
+            if _hit:
+                _f = Path(_hit[1] or "")
+                _alive = _f.exists() and any(
+                    x for x in _f.iterdir()
+                    if x.is_file() and x.suffix.lower() not in (".json", ".txt")
+                    and not x.name.endswith(".poster.jpg"))
+                if _alive:
+                    log("已存在：%s，直接跳过（未解析）" % (_hit[0] or "该作品"))
+                    print("EXIST_SKIP\t" + (_hit[0] or ""), flush=True)
+                    if want_notify("exists"):
+                        notify("已存在", _hit[0] or "该作品")
+                    return 0
+        except Exception as e:
+            log("URL 预检异常（继续）：%s" % e)
 
     try:
         r = parse(url, wait=wait, headed=headed)
-        out = save(r, dry_run=dry)
+        out = save(r, dry_run=dry, force=force)
         if not dry and isinstance(out, str):
             # 重复归档不再弹系统通知，页面里已经有轻提示
             _dup = DUP_FLAG[0]
