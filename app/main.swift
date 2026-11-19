@@ -1009,6 +1009,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var previewWindow: NSWindow?
     var didAutoReload = false
     var lastReloadTime: Date = .distantPast
+    var lastServerStarted: Int = 0   // 后端 /api/ping 启动时间戳：只有后端真的重启才重载页面
     var lpAllItem: NSMenuItem?
     var exAudioItem: NSMenuItem?
     var lpWinItem: NSMenuItem?
@@ -1757,17 +1758,42 @@ struct MainView: View {
     }
 
     func applicationDidBecomeActive(_ note: Notification) {
-        // Only reload if page hasn't been loaded in last 30 seconds
+        // 激活 App 不再无条件硬刷新（那是页面「抽动」的来源）。
+        // 只在两种情况重载：页面还没加载过；或后端真的重启过（/api/ping 的 started 变了）。
         let now = Date()
-        if now.timeIntervalSince(lastReloadTime) > 30 {
-            lastReloadTime = now
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+        if now.timeIntervalSince(lastReloadTime) < 5 { return }
+        lastReloadTime = now
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let self = self else { return }
+            var started = 0
+            if let u = URL(string: "http://127.0.0.1:8787/api/ping") {
+                var req = URLRequest(url: u)
+                req.cachePolicy = .reloadIgnoringLocalCacheData
+                req.timeoutInterval = 2.5
+                let sem = DispatchSemaphore(value: 0)
+                URLSession.shared.dataTask(with: req) { data, _, _ in
+                    if let data = data,
+                       let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       let s = j["started"] as? Double {
+                        started = Int(s)
+                    }
+                    sem.signal()
+                }.resume()
+                _ = sem.wait(timeout: .now() + 3.0)
+            }
+            DispatchQueue.main.async {
+                let prev = self.lastServerStarted
+                if started > 0 { self.lastServerStarted = started }
                 guard let web = WebHolder.main else { return }
-                let ts = Int(Date().timeIntervalSince1970)
-                if let u = URL(string: "http://127.0.0.1:8787/?v=\(ts)") {
-                    var req = URLRequest(url: u)
-                    req.cachePolicy = .reloadIgnoringLocalCacheData
-                    web.load(req)
+                // prev == 0 = 本次会话第一次看到后端：页面刚加载过，不刷
+                let needReload = (started > 0 && prev != 0 && started != prev)
+                if needReload || web.url == nil {
+                    let ts = Int(Date().timeIntervalSince1970)
+                    if let u = URL(string: "http://127.0.0.1:8787/?v=\(ts)") {
+                        var req = URLRequest(url: u)
+                        req.cachePolicy = .reloadIgnoringLocalCacheData
+                        web.load(req)
+                    }
                 }
             }
         }

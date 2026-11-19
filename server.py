@@ -158,8 +158,11 @@ def q_collections():
         GROUP BY c.id
         ORDER BY c.pinned DESC, c.name
     """).fetchall()
+    _hi, _ha, _hp, hc = _hidden_sets()
     out = []
     for r in rows:
+        if r["id"] in hc:
+            continue
         d = dict(r)
         d["items"] = [dict(x) for x in con.execute("""
             SELECT i.id, i.title, i.author
@@ -169,6 +172,63 @@ def q_collections():
         out.append(d)
     con.close()
     return out
+
+
+HIDDEN_FILE = HOME / ".media-archive" / "hidden.json"
+_HIDDEN_LOCK = threading.Lock()
+
+
+def load_hidden():
+    """App 内隐藏名单：作品 / 博主 / 平台 / 分类。只是不展示，数据都还在。"""
+    try:
+        d = json.loads(HIDDEN_FILE.read_text("utf-8"))
+        if isinstance(d, dict):
+            return d
+    except Exception:
+        pass
+    return {"items": [], "authors": [], "platforms": [], "collections": []}
+
+
+def save_hidden(h):
+    HIDDEN_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with _HIDDEN_LOCK:
+        tmp = HIDDEN_FILE.with_name(HIDDEN_FILE.name + ".tmp")
+        tmp.write_text(json.dumps(h, ensure_ascii=False), "utf-8")
+        os.replace(str(tmp), str(HIDDEN_FILE))
+
+
+def _hidden_sets():
+    h = load_hidden()
+    def _ints(v):
+        out = set()
+        for x in (v or []):
+            try:
+                out.add(int(x))
+            except Exception:
+                pass
+        return out
+    return (_ints(h.get("items")),
+            {str(x) for x in (h.get("authors") or [])},
+            {str(x) for x in (h.get("platforms") or [])},
+            _ints(h.get("collections")))
+
+
+def _hidden_where(con_kind):
+    """返回 (where 片段列表, 参数列表)，把隐藏的东西从 SQL 里排掉。"""
+    hi, ha, hp, hc = _hidden_sets()
+    where, args = [], []
+    if con_kind in ("items", "stats"):
+        if hi:
+            where.append("id NOT IN (" + ",".join("?" * len(hi)) + ")")
+            args += sorted(hi)
+        if ha:
+            where.append("(CASE WHEN author_id IS NULL OR author_id='' THEN author ELSE author_id END)"
+                         " NOT IN (" + ",".join("?" * len(ha)) + ")")
+            args += sorted(ha)
+        if hp:
+            where.append("platform NOT IN (" + ",".join("?" * len(hp)) + ")")
+            args += sorted(hp)
+    return where, args
 
 
 def q_items(q="", platform="", author="", limit=200, offset=0, collection=None, author_key=""):
@@ -181,7 +241,7 @@ def q_items(q="", platform="", author="", limit=200, offset=0, collection=None, 
     except Exception:
         offset = 0
     con = db()
-    where, args = [], []
+    where, args = _hidden_where("items")
     if q:
         q_escaped = q.replace("%", "\\%").replace("_", "\\_")
         where.append("(title LIKE ? ESCAPE '\\' OR author LIKE ? ESCAPE '\\' OR source_url LIKE ? ESCAPE '\\')")
@@ -1159,9 +1219,14 @@ def q_authors():
                 g["author_id"] = aid
                 g["saved_ts"] = r["saved_ts"]
     out = list(groups.values())
+    _hi, ha, hp, _hc = _hidden_sets()
     for d in out:
         d["pinned"] = d["author"] in pins
         d.pop("saved_ts", None)
+    # 隐藏过的博主 / 被隐藏平台下的博主都不再出现
+    out = [d for d in out
+           if d.get("author_key") not in ha and d.get("author") not in ha
+           and d.get("platform") not in hp]
     # 已经有作品的博主名字：手工建的空壳不再重复出现（否则侧栏会裂成两个同名）
     seen_keys = {d["author_key"] for d in out}
     seen_names = {(d["author"] or "") for d in out}
@@ -1185,6 +1250,10 @@ def q_authors():
                     "pinned": nm in pins})
         seen_names.add(nm)
         seen_keys.add(nm)
+    # 手工建的空壳博主同样遵守隐藏名单
+    out = [d for d in out
+           if d.get("author_key") not in ha and d.get("author") not in ha
+           and d.get("platform") not in hp]
     order = (load_order().get("authors") or [])
     if order:
         idx = {name: i for i, name in enumerate(order)}
@@ -1199,9 +1268,12 @@ def q_platforms():
     rows = con.execute("SELECT platform_cn, platform, COUNT(*) n FROM items GROUP BY platform_cn, platform ORDER BY n DESC").fetchall()
     con.close()
     pins = set(load_pins().get("platforms") or [])
+    _hi, _ha, hp, _hc = _hidden_sets()
     out = []
     for r in rows:
         d = dict(r)
+        if d["platform"] in hp:
+            continue
         d["pinned"] = d["platform"] in pins
         out.append(d)
     order = (load_order().get("platforms") or [])
@@ -1239,7 +1311,11 @@ def q_stats():
     now = time.time()
     # 快速路径：DB 计数 + 缓存的磁盘大小（不阻塞）
     con = db()
-    row = con.execute("SELECT COUNT(*) items, SUM(file_count) files FROM items").fetchone()
+    hw, hargs = _hidden_where("stats")
+    sql = "SELECT COUNT(*) items, SUM(file_count) files FROM items"
+    if hw:
+        sql += " WHERE " + " AND ".join(hw)
+    row = con.execute(sql, hargs).fetchone()
     con.close()
     with _STATS_LOCK:
         total = _STATS_CACHE.get("_size", 0)
@@ -1422,8 +1498,10 @@ def login_worker(platform):
             if batch.login_state(platform):
                 ok = True
                 _login_set(state="done", message="登录成功")
+                _login_cache_set(platform, batch.login_state(platform) or True)
             else:
                 _login_set(state="error", message="登录窗口已关闭，但未检测到登录态")
+                _login_cache_set(platform, False)
                 cleanup_stale_downloader()
         else:
             tail = (out.strip().splitlines() or ["登录失败"])[-1]
@@ -1441,6 +1519,57 @@ def login_worker(platform):
         QUEUE_PAUSED.clear()
 
 
+LOGIN_CACHE_FILE = HOME / ".media-archive" / "login_cache.json"
+_LOGIN_CACHE_LOCK = threading.Lock()
+
+
+def _login_cache_load():
+    try:
+        d = json.loads(LOGIN_CACHE_FILE.read_text("utf-8"))
+        return d if isinstance(d, dict) else {}
+    except Exception:
+        return {}
+
+
+def _login_cache_save(c):
+    LOGIN_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with _LOGIN_CACHE_LOCK:
+        LOGIN_CACHE_FILE.write_text(json.dumps(c, ensure_ascii=False), "utf-8")
+
+
+def _login_cache_set(platform, st):
+    c = _login_cache_load()
+    c[platform] = {"ts": time.time(),
+                   "nick": st if isinstance(st, str) else (True if st else False)}
+    _login_cache_save(c)
+
+
+def login_state_fast(platform, max_age=90):
+    """登录态快速版：磁盘缓存优先，避免每次开批量归档都等 node 去连 CDP。
+
+    - 缓存新鲜（< max_age 秒）：直接返回；
+    - 缓存过期：先把旧值返回（界面立刻显示「已登录·昵称」），后台静默刷新；
+    - 没有缓存：同步查一次并落盘（只有第一次会慢）。
+    """
+    c = _login_cache_load().get(platform)
+    now = time.time()
+    if c and now - c.get("ts", 0) <= max_age:
+        return c.get("nick") or True
+
+    def _bg():
+        try:
+            _login_cache_set(platform, batch.login_state(platform))
+        except Exception:
+            pass
+
+    if c:
+        threading.Thread(target=_bg, daemon=True).start()
+        return c.get("nick") or True
+    st = batch.login_state(platform)
+    _login_cache_set(platform, st)
+    return st
+
+
 def scope_from_qs(qs):
     if (qs.get("collection") or [""])[0]:
         return {"type": "collection", "value": (qs.get("collection") or [""])[0]}
@@ -1451,13 +1580,71 @@ def scope_from_qs(qs):
     return {"type": "all"}
 
 
-def run_archive(url):
+def apply_archive_targets(item_id, targets):
+    """批量归档时指定的归属：平台 / 博主 / 多个分类，归档完成后一次性套用。"""
+    if not targets or not item_id:
+        return
+    try:
+        con = db()
+        fields = {}
+        ak = str(targets.get("author_key") or "").strip()
+        if ak:
+            row = con.execute(
+                "SELECT author, author_id, platform, platform_cn FROM items "
+                "WHERE (CASE WHEN author_id IS NULL OR author_id='' THEN author ELSE author_id END)=? "
+                "LIMIT 1", (ak,)).fetchone()
+            if row:
+                fields.update({"author": row["author"],
+                               "author_id": (row["author_id"] or ak),
+                               "platform": row["platform"],
+                               "platform_cn": row["platform_cn"]})
+            else:
+                crow = con.execute(
+                    "SELECT name, platform FROM custom_authors WHERE name=? LIMIT 1",
+                    (ak,)).fetchone()
+                pf = (crow["platform"] if crow else "") or str(targets.get("platform") or "") or "manual"
+                fields.update({"author": ak, "author_id": ak,
+                               "platform": pf, "platform_cn": platform_cn_for(pf)})
+        pk = str(targets.get("platform") or "").strip()
+        if pk and not ak:
+            prow = con.execute(
+                "SELECT platform, platform_cn FROM items WHERE platform=? LIMIT 1",
+                (pk,)).fetchone()
+            cn = prow["platform_cn"] if prow else platform_cn_for(pk)
+            fields.update({"platform": pk, "platform_cn": cn})
+        if fields:
+            sets = ",".join(k + "=?" for k in fields)
+            con.execute("UPDATE items SET " + sets + " WHERE id=?",
+                        list(fields.values()) + [int(item_id)])
+        ensure_collections()
+        for c in (targets.get("collections") or []):
+            cid, name = None, None
+            if isinstance(c, dict):
+                cid, name = c.get("id"), c.get("name")
+            else:
+                cid = c
+            if not cid and name:
+                con.execute("INSERT OR IGNORE INTO collections(name, created_ts) VALUES(?, ?)",
+                            (name, int(time.time())))
+                r = con.execute("SELECT id FROM collections WHERE name=?", (name,)).fetchone()
+                cid = r["id"] if r else None
+            if cid:
+                con.execute(
+                    "INSERT OR IGNORE INTO collection_items(collection_id, item_id, added_ts) "
+                    "VALUES(?,?,?)", (int(cid), int(item_id), int(time.time())))
+        con.commit()
+        con.close()
+    except Exception as e:
+        print("[warn] 套用归档归属失败：%s" % e, file=sys.stderr)
+
+
+def run_archive(url, targets=None):
     tid = next_task_id()
     is_douyin = ("douyin" in url) or ("iesdouyin" in url)
     with TASKS_LOCK:
         TASKS[tid] = {"id": tid, "url": url, "status": "running", "log": "",
                       "folder": "", "started": time.time(), "kind": "archive",
-                      "queued": True, "active": False}
+                      "queued": True, "active": False, "targets": targets or None}
     prog_file = HOME / ".media-archive" / "progress" / (tid + ".json")
     prog_file.parent.mkdir(parents=True, exist_ok=True)
 
@@ -1554,6 +1741,9 @@ def run_archive(url):
                 con.close()
             except Exception:
                 pass
+            # 套用「归档到指定分类」里选的平台 / 博主 / 收藏夹
+            if item_info and targets:
+                apply_archive_targets(item_info["id"], targets)
         try:
             prog_file.unlink(missing_ok=True)
         except Exception:
@@ -1771,6 +1961,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(q_stats())
             if u.path == "/api/collections":
                 return self._json(q_collections())
+            if u.path == "/api/hidden":
+                return self._json({"ok": True, **load_hidden()})
             if u.path == "/api/collection/ids":
                 cid = (qs.get("id") or [""])[0]
                 ensure_collections()
@@ -1855,7 +2047,7 @@ class Handler(BaseHTTPRequestHandler):
                 plats = [only] if only in ("douyin", "xhs") else ["douyin", "xhs"]
                 out = {"ok": True}
                 for p in plats:
-                    st = batch.login_state(p)
+                    st = login_state_fast(p)
                     if isinstance(st, str):
                         out[p] = True
                         out[p + "_nickname"] = st
@@ -1888,7 +2080,7 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json({"ok": False, "error": "不支持的平台"}, 400)
                 if kind not in ("fav", "like"):
                     return self._json({"ok": False, "error": "不支持的列表类型"}, 400)
-                if not batch.login_state(platform):
+                if not login_state_fast(platform):
                     return self._json({"ok": False, "logged_in": False, "items": [],
                                        "error": "未登录，请先扫码登录"})
                 try:
@@ -2870,7 +3062,43 @@ class Handler(BaseHTTPRequestHandler):
                     start_douyin_chrome()
                 except Exception:
                     pass
+                _login_cache_set(platform, False)   # 退出后立刻失效，别闪「已登录」
                 return self._json({"ok": True, "message": "已退出登录"})
+            if u.path == "/api/hide":
+                kind = (body.get("kind") or "").strip()
+                hidden = bool(body.get("hidden", True))
+                keys = body.get("keys")
+                if keys is None:
+                    keys = [body.get("key")]
+                keys = [k for k in keys if k not in (None, "")]
+                if kind == "all" and not hidden:
+                    save_hidden({"items": [], "authors": [], "platforms": [], "collections": []})
+                    return self._json({"ok": True})
+                if kind not in ("item", "author", "platform", "collection") or not keys:
+                    return self._json({"ok": False, "error": "参数不对"}, 400)
+                field = {"item": "items", "author": "authors",
+                         "platform": "platforms", "collection": "collections"}[kind]
+                h = load_hidden()
+                cur = list(h.get(field) or [])
+                if kind in ("item", "collection"):
+                    norm = []
+                    for k in keys:
+                        try:
+                            norm.append(int(k))
+                        except Exception:
+                            pass
+                    keys = norm
+                else:
+                    keys = [str(k) for k in keys]
+                if hidden:
+                    for k in keys:
+                        if k not in cur:
+                            cur.append(k)
+                else:
+                    cur = [x for x in cur if x not in keys]
+                h[field] = cur
+                save_hidden(h)
+                return self._json({"ok": True, "hidden": h})
             if u.path == "/api/archive_batch":
                 raw = body.get("urls") or body.get("text") or ""
                 if isinstance(raw, list):
@@ -2878,7 +3106,8 @@ class Handler(BaseHTTPRequestHandler):
                 urls = batch.normalize_urls(raw)[:200]
                 if not urls:
                     return self._json({"ok": False, "error": "没有解析到链接"})
-                ids = [run_archive(u) for u in urls]
+                targets = body.get("targets") or None
+                ids = [run_archive(u, targets) for u in urls]
                 return self._json({"ok": True, "count": len(ids), "task_ids": ids})
             if u.path == "/api/reveal":
                 rp = resolve_under_archive(body.get("path") or "")
@@ -3120,6 +3349,14 @@ def main():
         ensure_douyin_chrome()
     except Exception as e:
         print("[warn] 抖音 Chrome 启动失败：%s" % e, file=sys.stderr)
+    # 4) 后台预热登录态缓存：开批量归档时立刻能显示「已登录·昵称」，不用等 node 连 CDP
+    def _warm_login_cache():
+        for p in ("douyin", "xhs"):
+            try:
+                login_state_fast(p, max_age=120)
+            except Exception:
+                pass
+    threading.Thread(target=_warm_login_cache, daemon=True).start()
 
     print("media-archive Web 端：http://127.0.0.1:%d" % port)
     print("归档目录：%s" % ARCHIVE)

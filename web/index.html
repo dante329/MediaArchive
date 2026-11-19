@@ -778,7 +778,8 @@ html:has(body.detail-mode){overflow-y:auto !important;height:auto !important}
 .batchbar select{background:var(--bg);border:1px solid var(--line);color:var(--txt);
   border-radius:8px;padding:6px 8px;font-size:12px;outline:none}
 .batchgrid{flex:1;overflow:auto;padding:12px 14px;display:grid;
-  grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;align-content:start}
+  grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;align-content:start;
+  scrollbar-gutter:stable}   /* 预留滚动条位：选中/归档后布局不跳动，也不留残影 */
 .bhint{font-size:12px;color:var(--dim)}
 .bhint.warn{color:#e8a53a}
 .bcard{position:relative;border-radius:10px;background:var(--bg);padding:6px;cursor:pointer;
@@ -786,7 +787,15 @@ html:has(body.detail-mode){overflow-y:auto !important;height:auto !important}
 .bcard:hover{border-color:var(--line)}
 .bcard.sel{border-color:var(--blue);box-shadow:0 0 0 2px var(--blue-l)}
 .bcard .cov{width:100%;aspect-ratio:3/4;object-fit:cover;border-radius:7px;background:#111;display:block}
-.bcard .chk{position:absolute;top:10px;left:10px;width:17px;height:17px;cursor:pointer}
+/* 自绘勾选框：WKWebView 原生 checkbox 在卡片上经常不画勾，改成必然可见的样式 */
+.bcard .chk{position:absolute;top:10px;left:10px;width:18px;height:18px;margin:0;cursor:pointer;
+  appearance:none;-webkit-appearance:none;border:1.5px solid rgba(255,255,255,.9);
+  border-radius:6px;background:rgba(20,24,30,.42);transition:background .12s,border-color .12s;
+  box-shadow:0 1px 3px rgba(0,0,0,.25)}
+.bcard .chk:hover{border-color:#fff}
+.bcard .chk:checked{background:var(--blue);border-color:var(--blue)}
+.bcard .chk:checked::after{content:"";position:absolute;left:5.5px;top:2px;width:4px;height:9px;
+  border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}
 .bcard .badge{position:absolute;top:10px;right:10px;background:rgba(0,0,0,.66);color:#fff;
   font-size:11px;padding:2px 7px;border-radius:99px}
 .bcard .bt{font-size:12.5px;line-height:1.35;margin:6px 2px 0;max-height:2.7em;overflow:hidden}
@@ -795,7 +804,30 @@ html:has(body.detail-mode){overflow-y:auto !important;height:auto !important}
 .batchpaste{flex:1;padding:14px;display:flex}
 .batchpaste textarea{flex:1;resize:none;min-height:220px;background:var(--bg);border:1px solid var(--line);
   border-radius:10px;padding:12px;color:var(--txt);font-size:13px;line-height:1.6;outline:none}
-.batchfoot{display:flex;align-items:center;gap:8px;padding:10px 14px;border-top:1px solid var(--line)}
+.batchfoot{display:flex;align-items:center;gap:8px;padding:10px 14px;border-top:1px solid var(--line);
+  position:relative;z-index:2;background:var(--card)}
+.batchfoot .sp{flex:1}
+/* 禁用态不要变深色：避免 hover 残影看起来像「多出来一块」 */
+button.primary:disabled:hover{background:var(--blue);border-color:var(--blue)}
+/* 解析中的 tab 打一个小呼吸点，切走了也知道还在跑 */
+.batchtabs button{position:relative}
+.batchtabs button.loading::after{content:"";position:absolute;top:7px;right:5px;width:6px;height:6px;
+  border-radius:50%;background:currentColor;opacity:.9;animation:bload 1s ease-in-out infinite}
+@keyframes bload{0%,100%{opacity:.25}50%{opacity:.95}}
+/* 归档到… / 隐藏管理 弹层里的分组 */
+.tgsec{display:flex;align-items:center;gap:8px;padding:9px 16px 5px;cursor:pointer;user-select:none}
+.tgsec b{color:var(--txt);font-size:12.5px}
+.tgsec .tgcaret{width:0;height:0;border-left:4.5px solid transparent;border-right:4.5px solid transparent;
+  border-top:6px solid var(--dim);transition:transform .12s}
+.tgsec[data-open="0"] .tgcaret{transform:rotate(-90deg)}
+.tgsec input.tgq{margin:0 0 0 auto;flex:none;width:120px;min-width:0;padding:3px 8px;font-size:11.5px;
+  border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--txt);outline:none}
+.tgsec input.tgq:focus{border-color:var(--blue)}
+.pickrow .sub{color:var(--dim);font-weight:400;font-size:10.5px;margin-left:4px;font-style:normal}
+.hmgrow{display:flex;align-items:center;gap:9px;padding:7px 8px;border-radius:7px;font-size:12.5px}
+.hmgrow:hover{background:var(--bg)}
+.hmgrow .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hmgrow .k{flex:none;color:var(--dim);font-size:11px}
 
 .freshpill{position:fixed;right:22px;bottom:22px;z-index:50;border:none;border-radius:99px;
   background:var(--blue);color:#fff;padding:10px 16px;font-size:13px;cursor:pointer;
@@ -922,6 +954,7 @@ html:has(body.detail-mode){overflow-y:auto !important;height:auto !important}
       <button class="small" id="bulkCollect">加入分类</button>
       <button class="small" id="bulkUncollect" style="display:none">移出分类</button>
       <button class="small" id="bulkAuthor">移到博主</button>
+      <button class="small" id="bulkHide" title="隐藏后 App 内不再展示，可在空白处右键「管理已隐藏」恢复">隐藏</button>
       <button class="small danger" id="bulkDelete">删除</button>
       <button class="small" id="bulkCancel">取消</button>
     </div>
@@ -1155,7 +1188,7 @@ html:has(body.detail-mode){overflow-y:auto !important;height:auto !important}
       <input id="batchLimitCustom" type="number" min="1" max="9999" placeholder="条数" style="display:none;width:72px;padding:4px 8px;border:1px solid var(--line);border-radius:6px;font-size:13px;background:var(--bg);color:var(--fg)">
       <input id="batchSearch" type="text" placeholder="搜索标题 / 作者">
       <label class="batchonly"><input type="checkbox" id="batchOnlyNew" checked> 只看未归档</label>
-      <button class="small" id="batchAll">全选未归档</button>
+      <button class="small" id="batchAll" title="全选当前筛选结果（配合「只看未归档」和搜索使用）">全选</button>
       <span class="sp"></span>
       <span class="bhint" id="batchInfo"></span>
     </div>
@@ -1172,7 +1205,35 @@ html:has(body.detail-mode){overflow-y:auto !important;height:auto !important}
       <span class="bhint" id="batchMsg"></span>
       <span class="sp"></span>
       <button class="small" id="batchBack" style="display:none">← 返回</button>
+      <button class="small" id="batchTargets" title="归档到指定平台 / 博主 / 收藏夹">归档到…</button>
       <button class="primary" id="batchGo">归档选中</button>
+    </div>
+  </div>
+</div>
+<!-- 归档到指定分类：平台 / 博主 / 收藏夹 组合选择 -->
+<div class="pick" id="batchTargetsBox">
+  <div class="pickbox" style="width:520px">
+    <div class="pickhead"><b>归档到…</b><span class="sp"></span>
+      <span class="bhint" id="tgCount"></span>
+      <button class="small" id="tgClose">关闭</button></div>
+    <div class="picklist" id="tgList" style="max-height:52vh"></div>
+    <div class="pickfoot">
+      <span class="sp"></span>
+      <button class="small" id="tgClear">清空选择</button>
+      <button class="primary" id="tgOk">归档</button>
+    </div>
+  </div>
+</div>
+<!-- 隐藏管理：恢复被隐藏的作品 / 博主 / 平台 / 分类 -->
+<div class="pick" id="hiddenMgrBox">
+  <div class="pickbox" style="width:520px">
+    <div class="pickhead"><b>已隐藏</b><span class="sp"></span>
+      <button class="small" id="hmClose">关闭</button></div>
+    <div class="picklist" id="hmList" style="max-height:56vh"></div>
+    <div class="pickfoot">
+      <span class="bhint">隐藏只是在 App 内不展示，文件与记录都还在</span>
+      <span class="sp"></span>
+      <button class="small danger" id="hmClearAll">全部恢复</button>
     </div>
   </div>
 </div>
@@ -1837,11 +1898,11 @@ function showCtxMenu(x, y, opts){
   const sep = () => rows.push({sep:true});
 
   // ---- 右键落在某个分类上 ----
+  /* 菜单原则：在哪右键就只给哪一层的操作，全局操作只留在空白处。 */
   if(opts.collection){
     const c = opts.collection;
     add("添加作品…", () => openPickForCollection(c.id));
-    sep();
-    add("重命名分类「" + c.name + "」…", async () => {
+    add("重命名分类…", async () => {
       const name = await askInput("重命名分类", "", c.name);
       if(!name || name === c.name) return;
       toast("处理中…");
@@ -1851,15 +1912,13 @@ function showCtxMenu(x, y, opts){
       if(r && r.ok){ toast("已重命名"); loadAll(); }
       else toast("失败：" + ((r && r.error) || "未知错误"));
     });
-    add("删除分类「" + c.name + "」…", () => deleteCollection(c), "danger");
+    add("隐藏分类「" + c.name + "」", () => hideConfirm("collection", c.id, "分类「" + c.name + "」"));
     sep();
+    add("删除分类「" + c.name + "」…", () => deleteCollection(c), "danger");
   }
-
-  // ---- 右键落在某个作品上 ----
-  if(opts.item){
+  // ---- 右键落在某个作品上：只给作品层操作 ----
+  else if(opts.item){
     const it = opts.item;
-    // 「加入分类」= 把这条作品放进分类（弹层里可多选、可当场新建）。
-    // 建分类本身走空白处右键的「新建分类…」，两边不再重复出现。
     add("加入分类…", () => addItemsToCollection([it.id]));
     if(state.collection){
       const cur = collectionsCache.find(x => String(x.id) === String(state.collection));
@@ -1871,7 +1930,6 @@ function showCtxMenu(x, y, opts){
     sep();
     add("添加照片或视频…", () => addFilesToItem(it));
     if(it.missing && !it.empty){
-      // 目录整个不见了：先自动找，找不到再让用户手动指路
       add("找回被挪走的文件（重新扫描）", () => rescanOneItem(it));
       add("指定文件夹新位置…", () => relocateItemManually(it));
     }
@@ -1884,6 +1942,8 @@ function showCtxMenu(x, y, opts){
         body: JSON.stringify({ item_id: it.id, title: t })}).then(x=>x.json()).catch(()=>null);
       if(r && r.ok){ toast("已重命名"); loadAll(); } else toast("失败");
     });
+    add("隐藏作品", () => hideThings("item", it.id, "作品「" + ((it.title || "").slice(0, 12) || it.id) + "」"));
+    sep();
     add("删除作品「" + (it.title || "").slice(0,12) + "」…", async () => {
       const ok = await askConfirm("删除作品", "「" + (it.title || "") + "」确定删除？", "删除", true);
       if(!ok) return;
@@ -1893,11 +1953,9 @@ function showCtxMenu(x, y, opts){
         body: JSON.stringify({ id: it.id, remove_files: true })}).then(x=>x.json()).catch(()=>null);
       if(r && r.ok){ toast("已移到废纸篓"); loadAll(); } else toast("删除失败");
     }, "danger");
-    sep();
   }
-
-  if(opts.author){
-    // aKey/aPlatform 精确圈定「这一个博主」：同名不同平台的是两个人，不能一起改
+  // ---- 右键落在博主标签上：只给博主层操作 ----
+  else if(opts.authorKey){
     const aKey = opts.author_key || opts.author;
     const aPlatform = opts.authorPlatform || opts.platformKey || "";
     add((opts.authorPinned ? "取消置顶「" : "置顶「") + opts.author + "」", () => {
@@ -1905,8 +1963,7 @@ function showCtxMenu(x, y, opts){
         body: JSON.stringify({kind:"authors", key:opts.author, pinned:!opts.authorPinned})})
         .then(()=>{ toast(opts.authorPinned ? "已取消置顶" : "已置顶"); loadAll(); });
     });
-    add("重命名", () => renameAuthorFlow(opts.author, aKey, aPlatform));
-    // 侧栏里出现同名博主（手工建的 + 平台抓到的撞名）→ 直接给一个合并入口
+    add("重命名博主…", () => renameAuthorFlow(opts.author, aKey, aPlatform));
     (__authors || []).filter(x => x.author === opts.author
         && (x.author_key || x.author) !== aKey).forEach(d => {
       const label = d.author + (d.platform_cn ? " · " + d.platform_cn : "");
@@ -1920,6 +1977,13 @@ function showCtxMenu(x, y, opts){
                              d.author_key || d.author, d.platform || "");
       });
     });
+    const ctx = currentAuthorContext(opts);
+    const where = ctx.isMine ? "我的作品"
+      : (ctx.author + (ctx.platform_cn ? " · " + ctx.platform_cn : ""));
+    add("新建作品…（归到 " + where + "）", () => openNewWork(opts));
+    add("隐藏博主「" + opts.author + "」", () =>
+      hideConfirm("author", aKey, "博主「" + opts.author + "」及其作品"));
+    sep();
     add("删除博主「" + opts.author + "」…", async () => {
       const n = opts.authorCount || 0;
       const msg = n > 0 ? "共 " + n + " 条作品。确定删除？" : "确定删除？";
@@ -1937,15 +2001,15 @@ function showCtxMenu(x, y, opts){
         toast("删除失败：" + ((r && r.error) || "未知错误"));
       }
     }, "danger");
-    sep();
   }
-  if(opts.platform){
+  // ---- 右键落在平台标签上：只给平台层操作 ----
+  else if(opts.platformKey){
     add((opts.platformPinned ? "取消置顶平台「" : "置顶平台「") + opts.platform + "」", () => {
       fetch("/api/pin", {method:"POST", headers:{"Content-Type":"application/json"},
         body: JSON.stringify({kind:"platforms", key:opts.platformKey, pinned:!opts.platformPinned})})
         .then(()=>{ toast(opts.platformPinned ? "已取消置顶" : "已置顶"); loadAll(); });
     });
-    add("重命名", async () => {
+    add("重命名平台…", async () => {
       const name = await askInput("重命名平台", "", opts.platform);
       if(!name || name===opts.platform) return;
       const r = await fetch("/api/rename_platform", {method:"POST",
@@ -1954,18 +2018,26 @@ function showCtxMenu(x, y, opts){
       if(r&&r.ok){ if(state.platform===opts.platform) state.platform=name; toast("已重命名 "+r.count+" 条"); loadAll(); }
       else toast("失败");
     });
-    sep();
+    add("隐藏平台「" + opts.platform + "」", () =>
+      hideConfirm("platform", opts.platformKey, "平台「" + opts.platform + "」及其作品"));
   }
-
-  // 新建作品：在博主标签下新建 → 归这个博主；在「全部」下新建 → 归「我的作品」
-  if(opts.newKind === "item" || opts.author){
+  // ---- 空白处 / 侧栏面板：全局操作集中在这里 ----
+  else {
     const ctx = currentAuthorContext(opts);
     const where = ctx.isMine ? "我的作品"
       : (ctx.author + (ctx.platform_cn ? " · " + ctx.platform_cn : ""));
     add("新建作品…（归到 " + where + "）", () => openNewWork(opts));
-  }
-  if(opts.newKind === "platform"){
-    add("新建", async () => {
+    add("新建博主…", async () => {
+      const name = await askInput("新建博主", "新建后可以在它下面新建作品", "");
+      if(!name) return;
+      const pf = platformKeyFor(state.platform) || "manual";
+      const r = await fetch("/api/create_author", {method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({name, platform: pf})}).then(x=>x.json()).catch(()=>null);
+      if(r&&r.ok){ toast("已创建「"+name+"」"); loadAll(); }
+      else toast("失败：" + ((r&&r.error)||""));
+    });
+    add("新建平台…", async () => {
       const name = await askInput("新建平台", "", "");
       if(!name) return;
       const key = "custom_" + Date.now().toString(36);
@@ -1974,31 +2046,15 @@ function showCtxMenu(x, y, opts){
         body: JSON.stringify({key, name, hosts:[]})}).then(x=>x.json()).catch(()=>null);
       if(r&&r.ok){ toast("已创建「"+name+"」"); loadAll(); } else toast("失败");
     });
-  } else if(opts.newKind === "author"){
-    add("新建博主", async () => {
-      const name = await askInput("新建博主", "新建后可以在它下面新建作品", "");
-      if(!name) return;
-      // 跟着当前平台走；没选平台就是「手动」，别一律塞进抖音
-      const pf = platformKeyFor(state.platform) || "manual";
-      const r = await fetch("/api/create_author", {method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({name, platform: pf})}).then(x=>x.json()).catch(()=>null);
-      if(r&&r.ok){ toast("已创建「"+name+"」"); loadAll(); }
-      else toast("失败：" + ((r&&r.error)||""));
-    });
-  }
-
-  // 作品上右键只用「加入分类…」（弹层里就能当场新建）；空白处才是「新建分类…」
-  if(!opts.collection && !opts.item){
     add("新建分类…", () => createCollection());
     if(state.collection) add("添加作品到当前分类…", () => openPickForCollection(state.collection));
+    sep();
+    add("管理已隐藏…", () => openHiddenManager());
+    add("重新扫描归档目录（找回被挪走的文件）", () => repairMissingItems());
+    sep();
+    add("刷新页面", () => { location.href = location.pathname + "?t=" + Date.now(); });
   }
 
-  sep();
-  if(!opts.collection && !opts.item){
-    add("重新扫描归档目录（找回被挪走的文件）", () => repairMissingItems());
-  }
-  add("刷新页面", () => { location.href = location.pathname + "?t=" + Date.now(); });
 
   m.innerHTML = rows.map((r,i) => r.sep
     ? '<div class="sep"></div>'
@@ -2059,17 +2115,18 @@ document.addEventListener("contextmenu", e => {
 
   if(chipAuthor){
     const name = chipAuthor.dataset.author;
-    if(!name){ return showCtxMenu(e.clientX, e.clientY, {}); }
+    if(!name){ return showCtxMenu(e.clientX, e.clientY, { newKind: "blank" }); }
     const a = (__authors||[]).find(x=>x.author===name) || {};
+    const aKey = chipAuthor.dataset.authorKey || a.author_key || name;
     return showCtxMenu(e.clientX, e.clientY,
-      {author:name, author_key: chipAuthor.dataset.authorKey || a.author_key || name,
+      {author:name, author_key: aKey, authorKey: aKey,
        platform:a.platform || "", platform_cn:a.platform_cn || "",
        authorPinned: !!a.pinned, authorCount: a.n || 0, newKind:"author"});
   }
   if(chipPlatform){
     const key = chipPlatform.dataset.platformKey;
     const label = chipPlatform.dataset.platformLabel;
-    if(!key){ return showCtxMenu(e.clientX, e.clientY, {}); }
+    if(!key){ return showCtxMenu(e.clientX, e.clientY, { newKind: "blank" }); }
     const p = (__platforms||[]).find(x=>x.platform===key) || {};
     return showCtxMenu(e.clientX, e.clientY, {
       platform: label, platformKey: key, platformPinned: !!p.pinned, newKind:"platform"});
@@ -2077,19 +2134,16 @@ document.addEventListener("contextmenu", e => {
   if(collPanel){
     const cid = collPanel.dataset.cid;
     const c = cid && collectionsCache.find(x => String(x.id) === String(cid));
-    if(!c){ return showCtxMenu(e.clientX, e.clientY, {}); }
+    if(!c){ return showCtxMenu(e.clientX, e.clientY, { newKind: "blank" }); }
     return showCtxMenu(e.clientX, e.clientY, { collection: c });
   }
   if(card){
     const it = itemsCache.find(x => String(x.id) === card.dataset.id);
-    if(it) return showCtxMenu(e.clientX, e.clientY, {
-      item: it, newKind: "item", author: it.author,
-      author_key: it.author_key || it.author_id || it.author,
-      platform: it.platform, platform_cn: it.platform_cn});
+    // 作品菜单只给作品层操作，不再混入博主 / 平台层条目
+    if(it) return showCtxMenu(e.clientX, e.clientY, { item: it, newKind: "item" });
   }
-  showCtxMenu(e.clientX, e.clientY, {
-    newKind: "item", author: state.author, author_key: state.author_key || state.author,
-    platform: state.platform, platform_cn: state.platform});
+  // 空白处 / 搜索 / 统计 / 面板背景：统一全局菜单，不再误挂平台上下文
+  showCtxMenu(e.clientX, e.clientY, { newKind: "blank" });
 });
 
 
@@ -4647,10 +4701,20 @@ if(DETAIL_ID){
   if(qp.get("platform")) state.platform = qp.get("platform");
   checkHealth(); loadAll(); startPolling();
   setInterval(checkHealth, 15000);
-  // 页面刷新后自动恢复批量归档窗口
+  // 预热登录态：进 App 就先问一次，开批量归档时直接秒显示「已登录·昵称」
+  ["douyin", "xhs"].forEach(p => {
+    fetch("/api/source/status?platform=" + p).then(x => x.json())
+      .then(r => { SRC_STATUS[p] = r; }).catch(() => {});
+  });
+  // 页面刷新后自动恢复批量归档窗口。
+  // 必须延后到本轮脚本执行完：BATCH / SRC_STATUS 是 const，同步调用会 TDZ
+  // （ReferenceError: Cannot access 'BATCH' before initialization），
+  // 而且一抛错后面所有事件绑定都死掉——就是用户说的「经常出翔」。
   if (sessionStorage.getItem("batchOpen") === "1") {
-    $("#batch").classList.add("on");
-    batchTabs(); batchStatus(); batchLoad(false);
+    setTimeout(() => {
+      $("#batch").classList.add("on");
+      batchTabs(); batchStatus(); batchLoad(false);
+    }, 0);
   }
 }
 if(new URLSearchParams(location.search).get("settings") === "1"){
@@ -4665,7 +4729,8 @@ $("#freshPill").onclick = () => {
 
 /* ---------- 批量归档 ---------- */
 const BATCH = { tab: "douyin|like", items: [], sel: new Set(), url: "", listUrl: "", poll: 0, loadedTab: "",
-  cache: {} /* per-tab cache: { items, sel, url, listUrl } */ };
+  cache: {},  /* per-tab cache: { items, sel, url, listUrl } */
+  jobs: {}    /* per-tab in-flight parse job: { ac, started } —— 切 tab 不打断 */ };
 
 function batchSaveCache(){
   const key = BATCH.tab;
@@ -4711,8 +4776,10 @@ function renderPastePreview(){
   if (!box) return;
   const urls = extractUrls($("#batchText")?.value || "");
   if (!urls.length) {
-    box.innerHTML = '<span>粘贴后自动识别链接</span>';
+    box.innerHTML = "";
+    box.style.display = "none";   // 没内容就别占地方、别放提示字
   } else {
+    box.style.display = "";
     const show = urls.slice(0, 6).map(u => '<div>· <span class="u">' + esc(u.length > 96 ? u.slice(0, 96) + "…" : u) + '</span></div>').join("");
     box.innerHTML = '<b>识别到 ' + urls.length + ' 个链接</b>' + show
       + (urls.length > 6 ? '<div>… 还有 ' + (urls.length - 6) + ' 个</div>' : "");
@@ -4729,6 +4796,8 @@ function batchCount(){
   }
   $("#batchGo").textContent = "归档选中（" + BATCH.sel.size + "）";
   $("#batchGo").disabled = BATCH.sel.size === 0;
+  const tg = $("#batchTargets");
+  if (tg) tg.disabled = BATCH.sel.size === 0;
 }
 
 function batchTabs(){
@@ -4753,10 +4822,29 @@ function batchClose(){
   $("#batch").classList.remove("on");
   sessionStorage.removeItem("batchOpen");
   if (BATCH.poll) { clearInterval(BATCH.poll); BATCH.poll = 0; }
+  // 关闭批量归档窗口 = 真正打断解析；切 tab 不会
+  Object.entries(BATCH.jobs).forEach(([tab, job]) => {
+    try { job.ac.abort(); } catch (e) {}
+    batchTabBadge(tab, false);
+  });
+  BATCH.jobs = {};
   $("#batchLogin").disabled = false;
-  $("#batchGo").disabled = false;
+  batchCount();
 }
 
+const SRC_STATUS = {};   // 登录态缓存：开批量归档窗口时先秒显示，再后台校对
+function applySourceStatus(platform, r){
+  const ok = !!r[platform];
+  const nick = r[platform + "_nickname"] || "";
+  const st = r.login || {};
+  const inLogin = st.state === "waiting_tasks" || st.state === "waiting_scan";
+  $("#batchLoginTip").textContent = ok ? ("已登录" + (nick ? " · " + nick : "")) : (inLogin ? (st.message || "登录中…") : "未登录");
+  $("#batchLoginTip").className = "bhint" + (ok ? "" : " warn");
+  $("#batchLogin").style.display = (ok || inLogin) ? "none" : "";
+  $("#batchLogout").style.display = ok ? "" : "none";
+  if (inLogin) startLoginPoll();
+  return ok;
+}
 async function batchStatus(){
   try {
     const { platform } = batchPK();
@@ -4765,16 +4853,10 @@ async function batchStatus(){
       $("#batchLoginTip").textContent = "";
       return;
     }
+    if (SRC_STATUS[platform]) applySourceStatus(platform, SRC_STATUS[platform]);  // 秒显示
     const r = await fetch("/api/source/status?platform=" + encodeURIComponent(platform)).then(x => x.json());
-    const ok = !!r[platform];
-    const nick = r[platform + "_nickname"] || "";
-    const st = r.login || {};
-    const inLogin = st.state === "waiting_tasks" || st.state === "waiting_scan";
-    $("#batchLoginTip").textContent = ok ? ("已登录" + (nick ? " · " + nick : "")) : (inLogin ? (st.message || "登录中…") : "未登录");
-    $("#batchLoginTip").className = "bhint" + (ok ? "" : " warn");
-    $("#batchLogin").style.display = (ok || inLogin) ? "none" : "";
-    $("#batchLogout").style.display = ok ? "" : "none";
-    if (inLogin) startLoginPoll();
+    SRC_STATUS[platform] = r;
+    applySourceStatus(platform, r);
   } catch (e) {
     $("#batchLogin").style.display = "";
     $("#batchLoginTip").textContent = "登录状态未知";
@@ -4809,41 +4891,86 @@ function startLoginPoll(){
   }, 1500);
 }
 
-async function batchLoad(refresh){
-  if (BATCH.tab === "paste" || BATCH.tab === "list") return;
-  const { platform, kind } = batchPK();
+/* 解析任务按 tab 记账：切走不打断，结果写回该 tab 的缓存；切回来直接看到。
+   只有关闭整个批量归档窗口才会 abort。 */
+function batchTabBadge(tab, on){
+  const b = [...document.querySelectorAll("#batchTabs button")].find(x => x.dataset.src === tab);
+  if (b) b.classList.toggle("loading", !!on);
+}
+
+function batchJobFor(tab, refresh){
+  const old = BATCH.jobs[tab];
+  if (old) { try { old.ac.abort(); } catch (e) {} }
+  const ac = new AbortController();
+  const job = { ac, started: Date.now() };
+  BATCH.jobs[tab] = job;
+  batchTabBadge(tab, true);
+  return job;
+}
+
+function batchJobDone(tab, job){
+  if (BATCH.jobs[tab] === job) delete BATCH.jobs[tab];
+  batchTabBadge(tab, false);
+}
+
+async function batchLoad(refresh, tabOverride){
+  const tab = tabOverride || BATCH.tab;
+  if (tab === "paste") return;
+  if (tab === "list") { if (!tabOverride) await batchListLoad(); return; }
+  const a = tab.split("|");
+  const platform = a[0], kind = a[1];
   if (!platform) return;
-  const tabAtStart = BATCH.tab;
-  BATCH.loadedTab = tabAtStart;
-  const grid = $("#batchGrid");
-  grid.style.display = "";
-  grid.innerHTML = '<div class="bhint" style="grid-column:1/-1;padding:30px 6px">读取中…</div>';
-  $("#batchInfo").textContent = "";
+  const cur = BATCH.cache[tab];
+  const urlAtStart = (tab === BATCH.tab) ? BATCH.url : (cur ? cur.url : "");
+  const job = batchJobFor(tab, refresh);
+  if (tab === BATCH.tab) {
+    BATCH.loadedTab = tab;
+    const grid = $("#batchGrid");
+    grid.style.display = "";
+    if (!(cur && cur.items && cur.items.length)) {
+      grid.innerHTML = '<div class="bhint" style="grid-column:1/-1;padding:30px 6px">读取中…</div>';
+    }
+    $("#batchInfo").textContent = "";
+  }
   const q = new URLSearchParams({ platform, kind, limit: batchLimitValue() });
   if (refresh) q.set("refresh", "1");
-  if (BATCH.url) q.set("url", BATCH.url);
+  if (urlAtStart) q.set("url", urlAtStart);
   try {
-    const r = await fetch("/api/source/items?" + q).then(x => x.json());
-    if (BATCH.loadedTab !== tabAtStart) return;
+    const r = await fetch("/api/source/items?" + q, { signal: job.ac.signal }).then(x => x.json());
     if (!r.ok) {
-      if (!r.logged_in) {
-        grid.innerHTML = "";
-        $("#batchLoginTip").textContent = "未登录";
-        $("#batchLoginTip").className = "bhint warn";
-        $("#batchLogin").style.display = "";
-        grid.innerHTML = '<div class="bhint" style="grid-column:1/-1;padding:30px 6px">未登录，点右上角「登录」扫码</div>';
-      } else {
-        grid.innerHTML = '<div class="bhint warn" style="grid-column:1/-1;padding:30px 6px">' + esc(r.error || "读取失败") + '</div>';
+      if (tab === BATCH.tab) {
+        const grid = $("#batchGrid");
+        if (!r.logged_in) {
+          $("#batchLoginTip").textContent = "未登录";
+          $("#batchLoginTip").className = "bhint warn";
+          $("#batchLogin").style.display = "";
+          grid.innerHTML = '<div class="bhint" style="grid-column:1/-1;padding:30px 6px">未登录，点右上角「登录」扫码</div>';
+        } else {
+          grid.innerHTML = '<div class="bhint warn" style="grid-column:1/-1;padding:30px 6px">' + esc(r.error || "读取失败") + '</div>';
+        }
       }
       return;
     }
-    BATCH.items = r.items || [];
-    BATCH.sel.clear();
-    renderBatch();
-    batchSaveCache();
+    // 结果写回该 tab 的缓存：切走了也不丢，切回来直接渲染
+    const prev = BATCH.cache[tab];
+    BATCH.cache[tab] = {
+      items: r.items || [],
+      sel: prev && prev.sel ? prev.sel : new Set(),
+      url: urlAtStart,
+      listUrl: prev ? prev.listUrl : ""
+    };
+    if (tab === BATCH.tab) {
+      BATCH.items = BATCH.cache[tab].items.slice();
+      BATCH.sel = new Set(BATCH.cache[tab].sel);
+      renderBatch();
+    }
   } catch (e) {
-    if (BATCH.loadedTab !== tabAtStart) return;
-    grid.innerHTML = '<div class="bhint warn" style="grid-column:1/-1;padding:30px 6px">读取失败：' + esc(e.message) + '</div>';
+    if (e && e.name === "AbortError") return;
+    if (tab === BATCH.tab) {
+      $("#batchGrid").innerHTML = '<div class="bhint warn" style="grid-column:1/-1;padding:30px 6px">读取失败：' + esc(e.message) + '</div>';
+    }
+  } finally {
+    batchJobDone(tab, job);
   }
 }
 
@@ -4944,7 +5071,7 @@ function renderBatch(){
   batchCount();
 }
 
-async function batchGo(){
+async function batchGo(targets){
   let urls = [];
   if (BATCH.tab === "paste") {
     urls = extractUrls($("#batchText")?.value || "");
@@ -4953,15 +5080,23 @@ async function batchGo(){
   }
   if (!urls.length) { toast("没有可归档的内容"); return; }
   $("#batchGo").disabled = true;
+  $("#batchTargets").disabled = true;
   try {
+    const payload = { urls };
+    if (targets) payload.targets = targets;
     const r = await fetch("/api/archive_batch", { method: "POST",
-      headers: { "Content-Type": "application/json" }, body: JSON.stringify({ urls }) }).then(x => x.json());
-    if (r.ok) { toast("已加入 " + r.count + " 条，任务面板里看进度"); BATCH.sel.clear(); renderBatch(); batchSaveCache(); }
+      headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }).then(x => x.json());
+    if (r.ok) {
+      toast(targets ? "已加入 " + r.count + " 条，归档后自动归到指定分类" :
+                    "已加入 " + r.count + " 条，任务面板里看进度");
+      BATCH.sel.clear(); renderBatch(); batchSaveCache();
+    }
     else toast(r.error || "加入失败");
   } catch (e) {
     toast("加入失败：" + e.message);
   }
-  $("#batchGo").disabled = false;
+  batchCount();   // 按钮可用性交给 batchCount 统一管，别留下禁用残影
+  $("#batchTargets").disabled = BATCH.sel.size === 0;
 }
 
 $("#btnBatch").onclick = () => {
@@ -5003,11 +5138,19 @@ $("#batchTabs").addEventListener("click", e => {
   batchTabs();
   if (BATCH.tab === "paste") { renderPastePreview(); return; }
   if (BATCH.tab === "list") { batchListInit(); return; }
-  batchStatus(); batchLoad(false);
+  batchStatus();
+  // 这个 tab 已经有解析任务在跑（刚才切走的那次）：不重发请求，等它写回缓存
+  if (BATCH.jobs[BATCH.tab]) {
+    $("#batchGrid").innerHTML = '<div class="bhint" style="grid-column:1/-1;padding:30px 6px">读取中…（后台解析未打断）</div>';
+    return;
+  }
+  batchLoad(false);
 });
 $("#batchRefresh").onclick = () => {
-  if (BATCH.tab === "list") batchListLoad();
-  else if (BATCH.tab !== "paste") batchLoad(true);
+  if (BATCH.tab === "list") { batchListLoad(); return; }
+  if (BATCH.tab === "paste") return;
+  if (BATCH.jobs[BATCH.tab]) { toast("这个列表正在解析中，完成后自动刷新"); return; }
+  batchLoad(true);
 };
 $("#batchListGo").onclick = () => batchListLoad();
 $("#batchListUrl").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); batchListLoad(); } });
@@ -5026,9 +5169,14 @@ $("#batchLimitCustom").addEventListener("keydown", e => {
 $("#batchSearch").oninput = () => renderBatch();
 $("#batchOnlyNew").onchange = () => renderBatch();
 $("#batchAll").onclick = () => {
+  // 「全选」= 全选当前筛选结果：勾上「只看未归档」就只选未归档的，搜了关键词就只选匹配的
   const list = batchVisible().filter(it => it.type !== "collection");
-  const all = list.length > 0 && list.every(it => it.archived || BATCH.sel.has(String(it.id)));
-  list.forEach(it => { if (!it.archived) { if (all) BATCH.sel.delete(String(it.id)); else BATCH.sel.add(String(it.id)); } });
+  if (!list.length) { toast("当前筛选下没有可选的作品"); return; }
+  const all = list.every(it => BATCH.sel.has(String(it.id)));
+  list.forEach(it => {
+    const k = String(it.id);
+    if (all) BATCH.sel.delete(k); else BATCH.sel.add(k);
+  });
   renderBatch();
 };
 $("#batchBack").onclick = () => { BATCH.url = ""; BATCH.sel.clear(); $("#batchBack").style.display = "none"; batchLoad(false); };
@@ -5083,13 +5231,230 @@ $("#batchGrid").addEventListener("click", e => {
     if (it) { BATCH.url = it.url; BATCH.sel.clear(); $("#batchBack").style.display = ""; batchLoad(false); }
     return;
   }
-  e.preventDefault();
+  // 点勾选框本身时不要 preventDefault：原生 checkbox 的 pre-click 翻转会被撤销，
+  // 结果就是「卡片选中了但框里没勾」（老 bug）
+  if (!e.target.matches("input.chk")) e.preventDefault();
   if (BATCH.sel.has(id)) BATCH.sel.delete(id); else BATCH.sel.add(id);
   card.classList.toggle("sel", BATCH.sel.has(id));
   const chk = card.querySelector(".chk");
   if (chk) chk.checked = BATCH.sel.has(id);
   batchCount();
 });
+
+/* ---------- 归档到指定分类（平台 / 博主 / 收藏夹 组合） ---------- */
+const TG = { platform: "", author_key: "", collections: new Set(),
+  open: { platform: true, author: true, collection: true },
+  q: { platform: "", author: "", collection: "" } };
+
+function tgSecHeader(grp, title){
+  return `<div class="tgsec" data-grp="${grp}" data-open="${TG.open[grp] ? 1 : 0}">
+    <span class="tgcaret"></span><b>${title}</b>
+    <input class="tgq" data-q="${grp}" type="text" placeholder="搜索" value="${esc(TG.q[grp] || "")}">
+  </div><div class="tgbody" data-body="${grp}" ${TG.open[grp] ? "" : 'style="display:none"'}>`;
+}
+
+function tgRender(){
+  const box = $("#tgList");
+  if (!box) return;
+  const qOf = g => (TG.q[g] || "").trim().toLowerCase();
+  const match = (g, label) => !qOf(g) || String(label).toLowerCase().includes(qOf(g));
+  const plats = (__platforms || []).filter(p => match("platform", p.platform_cn) || match("platform", p.platform));
+  const authors = (__authors || [])
+    .filter(a => !TG.platform || a.platform === TG.platform)
+    .filter(a => match("author", a.author))
+    .sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0));   // 主页置顶的博主排最前
+  const cols = (collectionsCache || []).filter(c => match("collection", c.name));
+  let html = "";
+  // 平台：点已选中的蓝点 = 取消选择
+  html += tgSecHeader("platform", "平台");
+  html += `<div class="pickrow" data-tg-p=""><input type="radio" name="tgp" ${!TG.platform ? "checked" : ""}><span class="pt">自动识别</span></div>`;
+  html += plats.map(p => `<div class="pickrow" data-tg-p="${esc(p.platform)}">
+      <input type="radio" name="tgp" ${TG.platform === p.platform ? "checked" : ""}>
+      <span class="pt">${esc(p.platform_cn)}</span><span class="pa">${p.n} 条</span></div>`).join("");
+  html += "</div>";
+  // 博主：同样点已选中可取消；选了平台只列该平台博主
+  html += tgSecHeader("author", "博主");
+  html += `<div class="pickrow" data-tg-a=""><input type="radio" name="tga" ${!TG.author_key ? "checked" : ""}><span class="pt">自动识别</span></div>`;
+  html += authors.map(a => `<div class="pickrow" data-tg-a="${esc(a.author_key || a.author)}">
+      <input type="radio" name="tga" ${TG.author_key === (a.author_key || a.author) ? "checked" : ""}>
+      <span class="pt">${esc(a.author)}${a.pinned ? '<i class="sub">置顶</i>' : ""}</span><span class="pa">${esc(a.platform_cn || "")}</span></div>`).join("");
+  html += "</div>";
+  // 收藏夹：多选
+  html += tgSecHeader("collection", "收藏夹");
+  html += cols.map(c => `<div class="pickrow" data-tg-c="${esc(String(c.id))}">
+      <input type="checkbox" ${TG.collections.has(String(c.id)) ? "checked" : ""}>
+      <span class="pt">${esc(c.name)}</span><span class="pa">${c.n || 0} 条</span></div>`).join("");
+  html += `<div class="pickrow" data-tg-cnew="1"><span class="pt" style="color:var(--blue)">＋ 新建收藏夹…</span></div>`;
+  html += "</div>";
+  box.innerHTML = html;
+  const n = (TG.platform ? 1 : 0) + (TG.author_key ? 1 : 0) + TG.collections.size;
+  $("#tgCount").textContent = n ? ("已选 " + n + " 项归属") : "";
+  $("#tgOk").disabled = BATCH.sel.size === 0;
+}
+
+function openBatchTargets(){
+  if (BATCH.sel.size === 0) { toast("先选中要归档的作品"); return; }
+  TG.platform = ""; TG.author_key = ""; TG.collections.clear();
+  TG.q = { platform: "", author: "", collection: "" };
+  TG.open = { platform: true, author: true, collection: true };
+  tgRender();
+  $("#batchTargetsBox").classList.add("on");
+}
+
+$("#tgList").addEventListener("click", async e => {
+  const rowP = e.target.closest("[data-tg-p]");
+  const rowA = e.target.closest("[data-tg-a]");
+  const rowC = e.target.closest("[data-tg-c]");
+  const rowNew = e.target.closest("[data-tg-cnew]");
+  if (rowNew) {
+    const name = await askInput("新建收藏夹", "归档完成后自动把作品加进去", "");
+    if (!name) return;
+    const r = await fetch("/api/collection/create", { method: "POST",
+      headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) }).then(x => x.json()).catch(() => null);
+    if (r && r.ok && r.id) TG.collections.add(String(r.id));
+    else if (r && r.id) TG.collections.add(String(r.id));
+    else toast("新建失败：" + ((r && r.error) || ""));
+    const cols = await fetch("/api/collections").then(x => x.json()).catch(() => []);
+    collectionsCache = Array.isArray(cols) ? cols : [];
+    tgRender();
+    return;
+  }
+  // 点标题栏 = 收起 / 展开（搜索框里打字不算）
+  const sec = e.target.closest(".tgsec");
+  if (sec && !e.target.matches(".tgq")) {
+    const g = sec.dataset.grp;
+    TG.open[g] = !TG.open[g];
+    tgRender();
+    return;
+  }
+  if (rowP) {
+    const v = rowP.dataset.tgP || "";
+    TG.platform = (v && v === TG.platform) ? "" : v;   // 点已选中的蓝点 = 取消
+    tgRender();
+    return;
+  }
+  if (rowA) {
+    const v = rowA.dataset.tgA || "";
+    TG.author_key = (v && v === TG.author_key) ? "" : v;
+    tgRender();
+    return;
+  }
+  if (rowC) {
+    const id = rowC.dataset.tgC;
+    if (TG.collections.has(id)) TG.collections.delete(id); else TG.collections.add(id);
+    tgRender();
+    return;
+  }
+});
+// 分区内搜索：只过滤行，不重渲染（保住输入框焦点）
+$("#tgList").addEventListener("input", e => {
+  if (!e.target.matches(".tgq")) return;
+  const g = e.target.dataset.q;
+  TG.q[g] = e.target.value;
+  const kw = e.target.value.trim().toLowerCase();
+  document.querySelectorAll(`[data-body="${g}"] .pickrow`).forEach(row => {
+    const label = (row.querySelector(".pt")?.textContent || "").toLowerCase();
+    row.style.display = (!kw || label.includes(kw)) ? "" : "none";
+  });
+});
+$("#tgClear").onclick = () => { TG.platform = ""; TG.author_key = ""; TG.collections.clear(); tgRender(); };
+$("#tgClose").onclick = () => $("#batchTargetsBox").classList.remove("on");
+$("#tgOk").onclick = () => {
+  const targets = {};
+  if (TG.platform) targets.platform = TG.platform;
+  if (TG.author_key) targets.author_key = TG.author_key;
+  if (TG.collections.size) targets.collections = [...TG.collections].map(id => ({ id }));
+  $("#batchTargetsBox").classList.remove("on");
+  batchGo(Object.keys(targets).length ? targets : null);
+};
+$("#batchTargets").onclick = openBatchTargets;
+
+/* ---------- 隐藏：作品 / 博主 / 平台 / 分类 ---------- */
+async function hideThings(kind, keys, label){
+  keys = (Array.isArray(keys) ? keys : [keys]).filter(k => k !== undefined && k !== null && k !== "");
+  if (!keys.length) return;
+  const r = await fetch("/api/hide", { method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ kind, keys, hidden: true }) }).then(x => x.json()).catch(() => null);
+  if (r && r.ok) {
+    toast("已隐藏 " + label + " · 空白处右键「管理已隐藏」可恢复");
+    // 当前筛选正好落在被隐藏的对象上 → 退回全部，避免空屏
+    if (kind === "platform" && keys.includes(platformKeyFor(state.platform))) state.platform = "";
+    if (kind === "author" && keys.includes(state.author_key || state.author)) { state.author = ""; state.author_key = ""; }
+    if (kind === "collection" && keys.includes(String(state.collection))) state.collection = null;
+    loadAll();
+  } else {
+    toast("隐藏失败：" + ((r && r.error) || ""));
+  }
+}
+
+async function hideConfirm(kind, keys, label){
+  const ok = await askConfirm("隐藏" + label,
+    "隐藏后 App 内不再展示" + label + "（文件与记录都保留）。\n恢复：空白处右键 → 管理已隐藏。", "隐藏");
+  if (!ok) return;
+  hideThings(kind, keys, label);
+}
+
+async function openHiddenManager(){
+  const r = await fetch("/api/hidden").then(x => x.json()).catch(() => null);
+  if (!r || !r.ok) { toast("读取隐藏名单失败"); return; }
+  const box = $("#hmList");
+  const rows = [];
+  const itemName = id => {
+    const it = (itemsCache || []).find(x => String(x.id) === String(id));
+    return it ? (it.title || ("作品 #" + id)) : ("作品 #" + id);
+  };
+  const authorName = k => {
+    const a = (__authors || []).find(x => (x.author_key || x.author) === k);
+    return a ? a.author : k;
+  };
+  const platName = k => {
+    const p = (__platforms || []).find(x => x.platform === k);
+    return p ? p.platform_cn : k;
+  };
+  const colName = id => {
+    const c = (collectionsCache || []).find(x => String(x.id) === String(id));
+    return c ? c.name : ("分类 #" + id);
+  };
+  (r.items || []).forEach(k => rows.push(["item", k, itemName(k), "作品"]));
+  (r.authors || []).forEach(k => rows.push(["author", k, authorName(k), "博主"]));
+  (r.platforms || []).forEach(k => rows.push(["platform", k, platName(k), "平台"]));
+  (r.collections || []).forEach(k => rows.push(["collection", k, colName(k), "分类"]));
+  box.innerHTML = rows.length ? rows.map((x, i) =>
+    `<div class="hmgrow" data-i="${i}"><span class="k">${x[3]}</span><span class="t">${esc(x[2])}</span>
+     <button class="small" data-un="1">恢复</button></div>`).join("")
+    : '<div class="bhint" style="padding:20px 8px">当前没有隐藏内容。右键作品 / 博主 / 平台 / 分类即可隐藏</div>';
+  box.querySelectorAll("[data-un]").forEach(btn => {
+    btn.onclick = async () => {
+      const i = +btn.closest(".hmgrow").dataset.i;
+      const [kind, key] = rows[i];
+      const rr = await fetch("/api/hide", { method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind, keys: [key], hidden: false }) }).then(x => x.json()).catch(() => null);
+      if (rr && rr.ok) { loadAll(); openHiddenManager(); }
+    };
+  });
+  $("#hiddenMgrBox").classList.add("on");
+}
+$("#hmClose").onclick = () => $("#hiddenMgrBox").classList.remove("on");
+$("#hmClearAll").onclick = async () => {
+  const ok = await askConfirm("全部恢复", "把所有隐藏的作品 / 博主 / 平台 / 分类都恢复展示？", "恢复");
+  if (!ok) return;
+  const r = await fetch("/api/hide", { method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ kind: "all", hidden: false }) }).then(x => x.json()).catch(() => null);
+  if (r && r.ok) { loadAll(); openHiddenManager(); }
+};
+
+/* 主列表多选条：隐藏选中的作品 */
+$("#bulkHide").onclick = async () => {
+  const ids = [...selected];
+  if (!ids.length) return;
+  const ok = await askConfirm("隐藏作品", "隐藏选中的 " + ids.length + " 个作品？App 内不再展示，文件保留。", "隐藏");
+  if (!ok) return;
+  await hideThings("item", ids, ids.length + " 个作品");
+  exitBulkMode();
+};
 </script>
 </body>
 </html>
