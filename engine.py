@@ -693,8 +693,15 @@ def ytdlp_json(url, proxy=True):
 
 
 def parse_browser(url):
-    """浏览器兜底：yt-dlp 没有 extractor 的页面（目前主要用于 Threads）。"""
+    """浏览器兜底：yt-dlp 没有 extractor 的页面（Threads、X/Twitter 等）。"""
     key, cn = detect_platform(url)
+    # X/Twitter 用户主页不是具体推文，无法归档单条作品
+    if key in ("x", "twitter"):
+        from urllib.parse import urlparse
+        path = urlparse(url).path.strip("/")
+        parts = [p for p in path.split("/") if p]
+        if len(parts) < 2 or parts[1] != "status":
+            raise RuntimeError("请粘贴具体的推文链接（x.com/用户名/status/数字），而不是用户主页")
     res = empty_result(key, cn, url)
     if not NODE:
         raise RuntimeError("缺少 node，无法使用浏览器兜底")
@@ -712,11 +719,31 @@ def parse_browser(url):
     title = (data.get("title") or "").strip()
     # Threads 的 og:title 常带后缀
     title = re.sub(r"\s*[|·-]\s*Threads\s*$", "", title, flags=re.I) or title
+    # X/Twitter 的 og:title 常带 " / X" 后缀
+    title = re.sub(r"\s*/\s*X\s*$", "", title, flags=re.I) or title
     m = re.search(r"/post/([0-9A-Za-z_-]+)", url)
+    if not m:
+        m = re.search(r"/status/([0-9]+)", url)
+    # 提取用户名：Threads 用 /@name，X 用 /name/status/
+    if not handle:
+        hm = re.search(r"/@([^/?#]+)", url)
+        if hm:
+            handle = hm.group(1)
+        else:
+            hm = re.search(r"(?:x\.com|twitter\.com)/([^/?#]+)", url, re.I)
+            if hm and hm.group(1) not in ("status", "i", "home", "explore", "search", "hashtag"):
+                handle = hm.group(1)
+    # author_url 按平台区分
+    if key in ("x", "twitter"):
+        author_url = ("https://x.com/%s" % handle) if handle else ""
+    elif key == "threads":
+        author_url = ("https://www.threads.net/@%s" % handle) if handle else ""
+    else:
+        author_url = ""
     res.update({
         "author": handle,
         "author_id": handle,
-        "author_url": ("https://www.threads.net/@%s" % handle) if handle else "",
+        "author_url": author_url,
         "title": title[:120] or url,
         "desc": (data.get("description") or "")[:1000],
         "aweme_id": (m.group(1) if m else str(abs(hash(url)) % 10 ** 12)),
@@ -1206,7 +1233,7 @@ def parse(url, wait=90, headed=False):
         return parse_xhs(url)
     if key == "telegram" and re.search(r"t\.me/", url):
         return parse_telegram(url)
-    if key in ("threads", "wechat"):
+    if key in ("threads", "wechat", "x", "twitter"):
         return parse_browser(url)
     return parse_generic(url)
 

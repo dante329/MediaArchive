@@ -111,6 +111,7 @@ final class SettingsModel: ObservableObject {
     @Published var notifyRefresh: Bool = false
     @Published var notifySettings: Bool = false
     @Published var ytdlpBrowserCookies: Bool = false
+    @Published var arrowSwitchWorks: Bool = true
     /// 上次保存时的快照，用来判断"有没有改动"
     @Published private var savedSnapshot: String = ""
 
@@ -123,6 +124,7 @@ final class SettingsModel: ObservableObject {
             String(notifyError), String(notifyAudio), String(notifyLive),
             String(notifyRefresh), String(notifySettings),
             String(ytdlpBrowserCookies),
+            String(arrowSwitchWorks),
             livephotoMode
         ].joined(separator: "|")
     }
@@ -278,6 +280,12 @@ struct SettingsView: View {
                 group("下载引擎") {
                     Toggle("允许 yt-dlp 使用本机 Chrome 登录态", isOn: $model.ytdlpBrowserCookies)
                     Text("开启后，yt-dlp 会读取你日常 Chrome 的登录状态（--cookies-from-browser chrome），用于下载需要登录的第三方站点；默认关闭。")
+                        .font(.caption).foregroundColor(.secondary)
+                }
+
+                group("浏览") {
+                    Toggle("作品详情里用 ↑↓ 方向键切换同博主的作品", isOn: $model.arrowSwitchWorks)
+                    Text("开启后，在打开的作品详情面板中按上/下方向键可循环切换同一博主的其他作品；关闭后方向键不做任何事。默认开启。")
                         .font(.caption).foregroundColor(.secondary)
                 }
 
@@ -771,20 +779,31 @@ final class DetailWindows: NSObject, WKScriptMessageHandler {
                     // douyin-pc 同时被 XMind 注册，默认处理器不一定是抖音；
                     // 这里显式指定 /Applications/抖音.app，并激活窗口。
                     if (nu.scheme ?? "").lowercased() == "douyin-pc" {
-                        // 抖音 Mac 客户端对 douyin-pc:// 深链处理不稳，送 URL 会闪退；
-                        // 这里只唤醒/启动 App，不送深链，同时用浏览器打开原帖/主页保底。
+                        // 抖音 Mac 客户端现状（实测）：
+                        //  - 热启动忽略外部 douyin-pc:// URL 事件（asar 内无 open-url 监听）
+                        //  - 冷启动在本机 2026 系统时钟下证书 TemporalValidity 失败、秒退
+                        // 策略：仍优先唤起 App 并送深链（客户端修复后自动生效），
+                        // 同时浏览器保底打开主页；冷启动秒退则 3 秒后回落浏览器。
                         let bid = "com.bytedance.douyin.desktop"
                         let app = URL(fileURLWithPath: "/Applications/抖音.app")
                         if let running = NSRunningApplication.runningApplications(withBundleIdentifier: bid).first {
                             running.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+                            NSWorkspace.shared.open(nu)
+                            NSWorkspace.shared.open(u)
                         } else if FileManager.default.fileExists(atPath: app.path) {
                             let cfg = NSWorkspace.OpenConfiguration()
                             cfg.activates = true
                             NSWorkspace.shared.openApplication(at: app, configuration: cfg) { running, _ in
                                 running?.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+                                NSWorkspace.shared.open(nu)
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                                    let alive = NSRunningApplication.runningApplications(withBundleIdentifier: bid).first != nil
+                                    if !alive { NSWorkspace.shared.open(u) }
+                                }
                             }
+                        } else {
+                            NSWorkspace.shared.open(u)
                         }
-                        NSWorkspace.shared.open(u)
                         return
                     }
                     if NSWorkspace.shared.urlForApplication(toOpen: nu) != nil {
@@ -1184,9 +1203,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                        let t = URL(string: str), isWebURL(t) {
                         NSApp.activate(ignoringOtherApps: true)
                         if let ns = comps?.queryItems?.first(where: { $0.name == "native" })?.value,
-                           !ns.isEmpty, let nu = URL(string: ns), isNativeSchemeAllowed(nu),
-                           NSWorkspace.shared.urlForApplication(toOpen: nu) != nil {
-                            NSWorkspace.shared.open(nu)
+                           !ns.isEmpty, let nu = URL(string: ns), isNativeSchemeAllowed(nu) {
+                            if (nu.scheme ?? "").lowercased() == "douyin-pc" {
+                                // 显式送抖音，避免 douyin-pc 被 XMind 抢注册；
+                                // 客户端现状见 openURL 分支注释：深链照送，浏览器保底
+                                let bid = "com.bytedance.douyin.desktop"
+                                let app = URL(fileURLWithPath: "/Applications/抖音.app")
+                                if let running = NSRunningApplication.runningApplications(withBundleIdentifier: bid).first {
+                                    running.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+                                    NSWorkspace.shared.open(nu)
+                                    NSWorkspace.shared.open(t)
+                                } else if FileManager.default.fileExists(atPath: app.path) {
+                                    let cfg = NSWorkspace.OpenConfiguration()
+                                    cfg.activates = true
+                                    NSWorkspace.shared.openApplication(at: app, configuration: cfg) { running, _ in
+                                        running?.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+                                        NSWorkspace.shared.open(nu)
+                                        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                                            let alive = NSRunningApplication.runningApplications(withBundleIdentifier: bid).first != nil
+                                            if !alive { NSWorkspace.shared.open(t) }
+                                        }
+                                    }
+                                } else {
+                                    NSWorkspace.shared.open(t)
+                                }
+                            } else if NSWorkspace.shared.urlForApplication(toOpen: nu) != nil {
+                                NSWorkspace.shared.open(nu)
+                            } else {
+                                NSWorkspace.shared.open(t)
+                            }
                         } else {
                             NSWorkspace.shared.open(t)
                         }
@@ -1488,6 +1533,7 @@ struct MainView: View {
             settingsModel.watchPlatforms = wp
         }
         settingsModel.theme = (cc["theme"] as? String) ?? "auto"
+        settingsModel.arrowSwitchWorks = (cc["arrow_switch_works"] as? Bool) ?? true
         if let nt = (cc["notify"] as? [String: Any]) {
             settingsModel.notifyStart = (nt["start"] as? Bool) ?? true
             settingsModel.notifyDone = (nt["done"] as? Bool) ?? true
@@ -1618,6 +1664,7 @@ struct MainView: View {
                          "settings": settingsModel.notifySettings]
         cfg["livephoto"] = ["mode": settingsModel.livephotoMode]
         cfg["ytdlp_use_browser_cookies"] = settingsModel.ytdlpBrowserCookies
+        cfg["arrow_switch_works"] = settingsModel.arrowSwitchWorks
         if !menuKeys.isEmpty { cfg["menu_hotkeys"] = menuKeys }
         if !Config.save(cfg) {
             alert("保存失败", "配置文件写入失败，请检查磁盘空间和权限。")

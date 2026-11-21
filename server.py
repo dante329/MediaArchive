@@ -118,6 +118,45 @@ QUEUE_PAUSED = threading.Event()          # 登录/维护时暂停新任务
 LOGIN_STATE = {"platform": "", "state": "idle", "message": "", "started": 0, "proc": None, "cancel": False}
 LOGIN_LOCK = threading.Lock()
 
+# ---------- 解析历史（成功/失败留痕，供信号灯窗口查看） ----------
+HISTORY_FILE = HOME / ".media-archive" / "history.json"
+HISTORY = []
+HISTORY_LOCK = threading.Lock()
+HISTORY_MAX = 400
+_LOCAL_SEQ = [0]
+_LOCAL_SEQ_LOCK = threading.Lock()
+
+
+def next_local_item_id():
+    with _LOCAL_SEQ_LOCK:
+        _LOCAL_SEQ[0] += 1
+        return "local_%d_%d" % (int(time.time() * 1000), _LOCAL_SEQ[0])
+
+
+def _history_load():
+    try:
+        if HISTORY_FILE.exists():
+            data = json.loads(HISTORY_FILE.read_text("utf-8"))
+            if isinstance(data, list):
+                HISTORY.extend(data[-HISTORY_MAX:])
+    except Exception:
+        pass
+
+
+def history_append(rec):
+    with HISTORY_LOCK:
+        HISTORY.append(rec)
+        while len(HISTORY) > HISTORY_MAX:
+            HISTORY.pop(0)
+        try:
+            HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
+            HISTORY_FILE.write_text(json.dumps(HISTORY, ensure_ascii=False), "utf-8")
+        except Exception:
+            pass
+
+
+_history_load()
+
 
 def db():
     con = sqlite3.connect(str(DB))
@@ -231,9 +270,43 @@ def _hidden_where(con_kind):
     return where, args
 
 
+# ---------- 拼音索引（搜索博主/平台名支持拼音、首字母、大小写不敏感） ----------
+try:
+    from pypinyin import lazy_pinyin as _lazy_py, Style as _PyStyle
+
+    def _py_full(s):
+        return "".join(_lazy_py(s or "")).lower()
+
+    def _py_ini(s):
+        return "".join(_lazy_py(s or "", style=_PyStyle.FIRST_LETTER)).lower()
+except Exception:
+    def _py_full(s):
+        return ""
+
+    def _py_ini(s):
+        return ""
+
+PINYIN_CACHE = {}
+PINYIN_LOCK = threading.Lock()
+
+
+def pinyin_of(s):
+    s = (s or "").strip()
+    if not s:
+        return ("", "")
+    with PINYIN_LOCK:
+        v = PINYIN_CACHE.get(s)
+    if v is None:
+        v = (_py_full(s), _py_ini(s))
+        with PINYIN_LOCK:
+            PINYIN_CACHE[s] = v
+    return v
+
+
 def q_items(q="", platform="", author="", limit=200, offset=0, collection=None, author_key=""):
     try:
-        limit = max(1, min(500, int(limit)))
+        # 行模式要拿全量作品分组，上限放宽到 6000（普通翻页仍走默认 200）
+        limit = max(1, min(6000, int(limit)))
     except Exception:
         limit = 200
     try:
@@ -244,8 +317,28 @@ def q_items(q="", platform="", author="", limit=200, offset=0, collection=None, 
     where, args = _hidden_where("items")
     if q:
         q_escaped = q.replace("%", "\\%").replace("_", "\\_")
-        where.append("(title LIKE ? ESCAPE '\\' OR author LIKE ? ESCAPE '\\' OR source_url LIKE ? ESCAPE '\\')")
-        args += ["%%%s%%" % q_escaped] * 3
+        parts = ["title LIKE ? ESCAPE '\\'", "author LIKE ? ESCAPE '\\'",
+                 "source_url LIKE ? ESCAPE '\\'", "platform_cn LIKE ? ESCAPE '\\'"]
+        args += ["%%%s%%" % q_escaped] * 4
+        # 博主名 / 平台名额外支持拼音、首字母、大小写不敏感
+        ql = q.strip().lower()
+        try:
+            con0 = db()
+            names = [r[0] for r in con0.execute("SELECT DISTINCT author FROM items")]
+            plats = [r[0] for r in con0.execute("SELECT DISTINCT platform_cn FROM items")]
+            con0.close()
+        except Exception:
+            names, plats = [], []
+        ma = [n for n in names if n and (ql in pinyin_of(n)[0] or ql in pinyin_of(n)[1])]
+        mp = [p for p in plats
+              if p and (ql in p.lower() or ql in pinyin_of(p)[0] or ql in pinyin_of(p)[1])]
+        if ma:
+            parts.append("author IN (%s)" % ",".join("?" * len(ma)))
+            args += ma
+        if mp:
+            parts.append("platform_cn IN (%s)" % ",".join("?" * len(mp)))
+            args += mp
+        where.append("(" + " OR ".join(parts) + ")")
     if platform:
         where.append("platform_cn = ?")
         args.append(platform)
@@ -1199,7 +1292,8 @@ def q_authors():
     con = db()
     rows = con.execute("SELECT platform, platform_cn, author, author_url, author_id, saved_ts FROM items").fetchall()
     con.close()
-    pins = set(load_pins().get("authors") or [])
+    pin_list = list(load_pins().get("authors") or [])
+    pin_set = set(pin_list)
     groups = {}
     for r in rows:
         aid = (r["author_id"] or "").strip()
@@ -1221,7 +1315,9 @@ def q_authors():
     out = list(groups.values())
     _hi, ha, hp, _hc = _hidden_sets()
     for d in out:
-        d["pinned"] = d["author"] in pins
+        ak = d.get("author_key") or ""
+        an = d.get("author") or ""
+        d["pinned"] = ak in pin_set or an in pin_set
         d.pop("saved_ts", None)
     # 隐藏过的博主 / 被隐藏平台下的博主都不再出现
     out = [d for d in out
@@ -1247,19 +1343,21 @@ def q_authors():
         out.append({"author": nm, "platform": pf,
                     "platform_cn": platform_cn_for(pf),
                     "author_url": "", "author_id": "", "author_key": nm, "n": 0,
-                    "pinned": nm in pins})
+                    "pinned": nm in pin_set})
         seen_names.add(nm)
         seen_keys.add(nm)
     # 手工建的空壳博主同样遵守隐藏名单
     out = [d for d in out
            if d.get("author_key") not in ha and d.get("author") not in ha
            and d.get("platform") not in hp]
-    order = (load_order().get("authors") or [])
-    if order:
-        idx = {name: i for i, name in enumerate(order)}
-        out.sort(key=lambda x: (0 if x["pinned"] else 1, idx.get(x["author"], 9999), -x["n"]))
-    else:
-        out.sort(key=lambda x: (0 if x["pinned"] else 1, -x["n"]))
+    # 按置顶顺序排：pin_list 索引越小越靠前，未置顶的按作品数降序
+    pin_idx_map = {k: i for i, k in enumerate(pin_list)}
+    def _pin_sort_key(x):
+        ak = x.get("author_key") or ""
+        an = x.get("author") or ""
+        pi = pin_idx_map.get(ak, pin_idx_map.get(an, 999999))
+        return (0 if pi < 999999 else 1, pi, -x["n"])
+    out.sort(key=_pin_sort_key)
     return out
 
 
@@ -1774,6 +1872,17 @@ def run_archive(url, targets=None):
                                            if "失败" in ln or "错误" in ln), "未知错误")[:80]),
                     "skipped": "EXIST_SKIP" in out,
                 })
+        # 留痕：成功/失败都进历史，供信号灯窗口查看
+        _cur = cur or {}
+        _it = item_info if isinstance(item_info, dict) else {}
+        history_append({
+            "ts": time.time(), "url": url, "status": _cur.get("status") or "error",
+            "title": _it.get("title", "") or "", "platform": _it.get("platform", "") or "",
+            "error": _cur.get("error_reason", "") or "",
+            "folder": folder or "",
+            "duplicate": bool(_cur.get("duplicate")),
+            "skipped": bool(_cur.get("skipped")),
+        })
     threading.Thread(target=worker, daemon=True).start()
     return tid
 
@@ -1935,7 +2044,52 @@ class Handler(BaseHTTPRequestHandler):
                     "theme": c.get("theme", "auto"),
                     "archive_dir": c.get("archive_dir") or str(ARCHIVE),
                     "livephoto": c.get("livephoto") or {},
+                    "arrow_switch_works": bool(c.get("arrow_switch_works", True)),
                 })
+
+            if u.path == "/api/suggest":
+                ql = (urllib.parse.parse_qs(u.query).get("q", [""])[0] or "").strip().lower()
+                if not ql:
+                    return self._json({"ok": True, "authors": [], "platforms": []})
+                con = db()
+                arows = con.execute("SELECT author, platform_cn, COUNT(*) n "
+                                    "FROM items GROUP BY author, platform_cn").fetchall()
+                prows = con.execute("SELECT platform_cn, COUNT(*) n "
+                                    "FROM items GROUP BY platform_cn").fetchall()
+                con.close()
+
+                def _score(name):
+                    if not name:
+                        return None
+                    f, i = pinyin_of(name)
+                    nl = name.lower()
+                    if nl.startswith(ql) or f.startswith(ql) or i.startswith(ql):
+                        return 0
+                    if ql in nl or ql in f or ql in i:
+                        return 1
+                    return None
+
+                auth, plat = [], []
+                for r in arows:
+                    s = _score(r["author"])
+                    if s is not None:
+                        auth.append((s, -r["n"], {"name": r["author"],
+                                                  "platform_cn": r["platform_cn"] or "",
+                                                  "n": r["n"]}))
+                for r in prows:
+                    s = _score(r["platform_cn"])
+                    if s is not None:
+                        plat.append((s, -r["n"], {"name": r["platform_cn"], "n": r["n"]}))
+                auth.sort(key=lambda x: (x[0], x[1]))
+                plat.sort(key=lambda x: (x[0], x[1]))
+                return self._json({"ok": True,
+                                   "authors": [a[2] for a in auth[:8]],
+                                   "platforms": [p[2] for p in plat[:4]]})
+
+            if u.path == "/api/history":
+                with HISTORY_LOCK:
+                    items = list(reversed(HISTORY))   # 新的在前
+                return self._json({"ok": True, "items": items})
 
             if u.path == "/api/tasks":
                 with TASKS_LOCK:
@@ -1956,7 +2110,7 @@ class Handler(BaseHTTPRequestHandler):
                     except Exception:
                         pass
                 items.sort(key=lambda x: x.get("started", 0), reverse=True)
-                return self._json(items[:60])
+                return self._json(items)
             if u.path == "/api/stats":
                 return self._json(q_stats())
             if u.path == "/api/collections":
@@ -2441,16 +2595,24 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/api/pin":
                 kind = (body.get("kind") or "").strip()      # author / platform
                 key = (body.get("key") or "").strip()
-                on = bool(body.get("pinned"))
+                on = body.get("pinned")   # True/False 或 "top"
+                action = (body.get("action") or "").strip()  # "top" = 移到最前
                 if kind not in ("authors", "platforms") or not key:
                     return self._json({"ok": False, "error": "参数不完整"})
                 pins = load_pins()
-                arr = set(pins.get(kind) or [])
-                if on:
-                    arr.add(key)
+                arr = list(pins.get(kind) or [])
+                if action == "top" or on == "top":
+                    # 移到最前：先移除再插到头部
+                    arr = [x for x in arr if x != key]
+                    arr.insert(0, key)
+                elif on and on is not False:
+                    # 置顶（如果不在列表里就加到头部）
+                    if key not in arr:
+                        arr.insert(0, key)
                 else:
-                    arr.discard(key)
-                pins[kind] = sorted(arr)
+                    # 取消置顶
+                    arr = [x for x in arr if x != key]
+                pins[kind] = arr
                 save_pins(pins)
                 return self._json({"ok": True, "pins": pins})
 
@@ -2806,6 +2968,46 @@ class Handler(BaseHTTPRequestHandler):
                 except Exception:
                     pass
                 return self._json({"ok": True})
+            if u.path == "/api/delete_file":
+                # 从某条作品里移除单个文件（移到废纸篓），更新 file_count
+                item_id = body.get("item_id")
+                rel_path = body.get("path") or ""
+                if not item_id or not rel_path:
+                    return self._json({"ok": False, "error": "参数不对"}, 400)
+                con = db()
+                row = con.execute("SELECT folder, file_count FROM items WHERE id=?", (item_id,)).fetchone()
+                if not row:
+                    con.close()
+                    return self._json({"ok": False, "error": "记录不存在"}, 404)
+                folder = Path(row["folder"])
+                try:
+                    folder.resolve().relative_to(ARCHIVE.resolve())
+                except ValueError:
+                    con.close()
+                    return self._json({"ok": False, "error": "路径不在归档目录内"})
+                # rel_path 可能是 /api/media?p=... 格式，提取真实路径
+                from urllib.parse import urlparse, parse_qs, unquote
+                parsed = urlparse(rel_path)
+                qs = parse_qs(parsed.query)
+                real_rel = (qs.get("p") or [rel_path])[0]
+                real_rel = unquote(real_rel)
+                target = (folder / real_rel).resolve()
+                try:
+                    target.relative_to(folder.resolve())
+                except ValueError:
+                    con.close()
+                    return self._json({"ok": False, "error": "路径逃逸"})
+                if not target.exists():
+                    con.close()
+                    return self._json({"ok": False, "error": "文件不存在"})
+                if not move_to_trash(target):
+                    con.close()
+                    return self._json({"ok": False, "error": "移入废纸篓失败"})
+                new_count = max(0, (row["file_count"] or 1) - 1)
+                con.execute("UPDATE items SET file_count=? WHERE id=?", (new_count, item_id))
+                con.commit()
+                con.close()
+                return self._json({"ok": True})
             if u.path == "/api/delete_batch":
                 ids = body.get("ids") or []
                 remove_files = bool(body.get("remove_files", True))
@@ -2948,6 +3150,72 @@ class Handler(BaseHTTPRequestHandler):
                 if not folder:
                     return self._json({"ok": False, "error": "缺少目录"})
                 return self._json(prepare_live_folder(folder))
+            if u.path == "/api/import_local":
+                # 本地目录批量导入：每组 = 一个作品（博主 + 标题 + 文件列表）
+                groups = body.get("groups") or []
+                move = bool(body.get("move", True))
+                if not isinstance(groups, list) or not groups:
+                    return self._json({"ok": False, "error": "缺少 groups"}, 400)
+                con = db()
+                done, failed = 0, []
+                stamp = time.strftime("%Y%m%d")
+                vid_ext = {".mp4", ".mov", ".m4v", ".mkv", ".avi"}
+                for g in groups:
+                    author = (g.get("author") or "").strip() or "未知博主"
+                    title = (g.get("title") or "").strip() or "未命名"
+                    files = [f for f in (g.get("files") or [])
+                             if isinstance(f, str) and os.path.isfile(f)]
+                    if not files:
+                        failed.append({"title": title, "error": "没有有效文件"})
+                        continue
+                    try:
+                        safe = re.sub(r'[\\/:*?"<>|]', "_", title)[:50]
+                        safe = safe + "_" + str(int(time.time() * 1000))[-6:]
+                        folder = unique_dest(author_dir_for("本地", author)
+                                             / ("%s_%s" % (stamp, safe)))
+                        folder.mkdir(parents=True, exist_ok=True)
+                        cts = 0
+                        vids = 0
+                        for i, f in enumerate(files):
+                            dst = folder / os.path.basename(f)
+                            if dst.exists():
+                                dst = folder / ("%d_%s" % (i, os.path.basename(f)))
+                            if move:
+                                shutil.move(f, str(dst))
+                            else:
+                                shutil.copy2(f, str(dst))
+                            if os.path.splitext(f)[1].lower() in vid_ext:
+                                vids += 1
+                            if not cts:
+                                try:
+                                    cts = int(os.path.getmtime(f))
+                                except Exception:
+                                    pass
+                        con.execute("""INSERT INTO items
+                            (platform, platform_cn, author, author_id, author_url, title,
+                             item_id, type, created_ts, saved_ts, file_count, folder, source_url)
+                            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                            ("local", "本地", author, "", "", title,
+                             next_local_item_id(),
+                             "视频" if vids else "图文",
+                             cts or int(time.time()), int(time.time()),
+                             len(files), str(folder), ""))
+                        try:
+                            con.execute("""CREATE TABLE IF NOT EXISTS custom_authors(
+                                name TEXT, platform TEXT, created_ts INTEGER,
+                                PRIMARY KEY(name, platform))""")
+                            con.execute("INSERT OR IGNORE INTO custom_authors(name, platform, created_ts)"
+                                        " VALUES (?,?,?)", (author, "local", int(time.time())))
+                        except Exception:
+                            pass
+                        done += 1
+                    except Exception as e:
+                        failed.append({"title": title, "error": str(e)[:120]})
+                con.commit()
+                con.close()
+                _PLAT_TABLES["ts"] = 0.0
+                return self._json({"ok": True, "done": done, "failed": failed})
+
             if u.path == "/api/import_live":
                 iid = body.get("item_id")
                 con = db()
@@ -3054,7 +3322,6 @@ class Handler(BaseHTTPRequestHandler):
                     d = profile / "Default" / dname
                     try:
                         if d.exists():
-                            import shutil
                             shutil.rmtree(str(d), ignore_errors=True)
                     except Exception:
                         pass

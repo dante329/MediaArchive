@@ -63,7 +63,16 @@ const sleep = cdp.sleep;
 
     const title = dom.title || '';
     const handle = (() => {
-      try { return (new URL(URL_ARG).pathname.match(/\/@([^/]+)/) || [])[1] || ''; } catch (e) { return ''; }
+      try {
+        const p = new URL(URL_ARG).pathname;
+        // Threads: /@username/post/...
+        let m = p.match(/\/@([^/]+)/);
+        if (m) return m[1];
+        // X/Twitter: /username/status/...
+        m = p.match(/^\/([^/?#]+)/);
+        if (m && !['status','i','home','explore','search','hashtag','settings','notifications','messages'].includes(m[1])) return m[1];
+        return '';
+      } catch (e) { return ''; }
     })();
     const videos = [...new Set([...(dom.videos || []), ...media.keys()])];
     const images = [...new Set((dom.images || []).filter(u =>

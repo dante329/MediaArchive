@@ -282,6 +282,8 @@ main{flex:1 1 auto;min-width:0;min-height:0;height:auto;
 .banner button{margin-left:auto}
 
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(228px,1fr));gap:14px}
+/* 苹果相册式：按博主分行横滚 */
+.grid.row-mode{display:block}
 .card{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden;
   cursor:pointer;transition:box-shadow .18s ease,border-color .18s ease;box-shadow:var(--shadow);
   position:relative;display:flex;flex-direction:column}
@@ -317,6 +319,55 @@ body.bulkmode .card::after{content:"";position:absolute;inset:0;border-radius:14
 .statpanel{font-size:12.5px;color:var(--dim);line-height:1.75}
 .statpanel b{color:var(--txt);font-weight:600;font-size:13.5px}
 
+/* ---- 博主行（苹果相册式） ---- */
+.author-row{margin-bottom:20px}
+.author-row-hdr{display:flex;align-items:center;gap:5px;margin-bottom:8px;cursor:pointer;
+  user-select:none;-webkit-tap-highlight-color:transparent}
+.author-row-hdr:hover .ar-name{color:var(--blue)}
+.ar-name{font-size:15px;font-weight:700;color:var(--txt);transition:color .15s;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ar-chev{width:16px;height:16px;fill:var(--dim);flex:none;transition:transform .15s,fill .15s}
+.author-row-hdr:hover .ar-chev{fill:var(--blue);transform:translateX(2px)}
+.ar-cnt{font-size:11.5px;color:var(--dim);margin-left:3px;font-weight:400;flex:none}
+.ar-plat{font-size:10.5px;color:var(--dim);background:var(--line);border-radius:4px;
+  padding:1px 5px;margin-left:5px;font-weight:500;flex:none}
+.ar-pin{font-size:13px;flex:none;line-height:1}
+.author-track-wrap{position:relative}
+.author-track{display:flex;gap:10px;overflow-x:auto;overflow-y:hidden;
+  padding-bottom:4px;scroll-snap-type:x proximity;
+  -webkit-overflow-scrolling:touch;scrollbar-width:none}
+.author-track::-webkit-scrollbar{display:none}
+.author-track .card{flex:none;width:180px;scroll-snap-align:start;border-radius:12px}
+.author-track .card .body{padding:8px 10px 10px}
+.author-track .card .title{font-size:12.5px;min-height:34px}
+.author-track .card .author{display:none}  /* 行头已有博主名，卡片里不重复 */
+.author-track .card .meta{display:none}    /* 横滚卡片不显示平台/日期/点赞，保持干净 */
+/* 滚动箭头 */
+.ar-arrow{position:absolute;top:50%;transform:translateY(-50%);z-index:5;
+  width:26px;height:26px;border-radius:50%;background:rgba(0,0,0,.4);
+  display:flex;align-items:center;justify-content:center;cursor:pointer;
+  opacity:0;transition:opacity .2s;pointer-events:none;border:none;padding:0}
+.ar-arrow svg{width:14px;height:14px;fill:#fff}
+.ar-arrow.left{left:-4px}
+.ar-arrow.right{right:-4px}
+.author-row:hover .ar-arrow{opacity:1;pointer-events:auto}
+.ar-arrow:hover{background:rgba(0,0,0,.65)}
+/* 右侧渐变遮罩提示还有更多 */
+.author-track-wrap::after{content:"";position:absolute;top:0;right:-2px;bottom:4px;width:36px;
+  background:linear-gradient(to right,transparent,var(--bg));pointer-events:none;
+  opacity:0;transition:opacity .2s}
+.author-track-wrap.has-more::after{opacity:1}
+/* 单条作品不需要横滚控件 */
+.author-row.single .author-track{overflow:visible}
+.author-row.single .ar-arrow{display:none}
+.author-row.single .author-track-wrap::after{display:none}
+
+/* 返回全部按钮栏 */
+.backhome{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+.backhome.hidden{display:none}
+.backhome button{font-size:13px;padding:6px 12px}
+.bh-name{font-size:14px;font-weight:600;color:var(--txt)}
+
 .imgs{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:8px}
 .imgs img{margin:0;cursor:zoom-in}
 .kvtitle{font-weight:600;line-height:1.45;display:block;margin-bottom:2px}
@@ -330,8 +381,12 @@ body.bulkmode .card::after{content:"";position:absolute;inset:0;border-radius:14
 .bulkbar{display:flex;align-items:center;gap:10px;background:var(--blue-l);border:1px solid var(--blue-l);
   color:var(--blue-d);border-radius:10px;padding:9px 14px;margin-bottom:14px;font-size:13px;font-weight:600}
 .bulkbar.hidden{display:none}
-.loadmore{display:flex;justify-content:center;padding:18px 0 6px}
+.loadmore{display:flex;align-items:center;justify-content:center;gap:8px;padding:18px 0 6px;
+  font-size:13px;color:var(--dim)}
 .loadmore.hidden{display:none}
+.lm-spin{width:16px;height:16px;border:2px solid var(--line);border-top-color:var(--blue);
+  border-radius:50%;animation:lmspin .6s linear infinite}
+@keyframes lmspin{to{transform:rotate(360deg)}}
 .bulkbar .sp{flex:1}
 /* 收藏夹面板：跟平台/博主同级 */
 .collpanel h3 .cname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -352,11 +407,11 @@ body.bulkmode .card::after{content:"";position:absolute;inset:0;border-radius:14
   background:var(--card);border:1px solid var(--line);border-radius:10px;
   box-shadow:var(--shadow-lg);display:none;font-size:13px;color:var(--txt)}
 .ctxmenu.on{display:block}
-.ctxmenu .mi{padding:7px 10px;border-radius:6px;cursor:pointer;
+.ctxmenu .mi,.ctxmenu .ctxrow{padding:7px 10px;border-radius:6px;cursor:pointer;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ctxmenu .mi:hover{background:var(--hover)}
-.ctxmenu .mi.danger{color:var(--danger)}
-.ctxmenu .mi.danger:hover{background:var(--danger-l)}
+.ctxmenu .mi:hover,.ctxmenu .ctxrow:hover{background:var(--hover)}
+.ctxmenu .mi.danger,.ctxmenu .ctxdanger{color:var(--danger)}
+.ctxmenu .mi.danger:hover,.ctxmenu .ctxdanger:hover{background:var(--danger-l)}
 .ctxmenu .sep{height:1px;background:var(--line);margin:4px 6px}
 
 /* 批量添加作品到分类 */
@@ -576,8 +631,17 @@ html:has(body.detail-mode){overflow-y:auto !important;height:auto !important}
 /* ---------- 图文：Telegram 式气泡网格 ---------- */
 .pgallery{display:flex;flex-direction:column;gap:0;margin:0 -22px 14px}
 .bubble{display:grid;gap:0;overflow:hidden;background:#000}
-.bcell{position:relative;overflow:hidden;cursor:default;background:#0a0a0c}
-.bcell img{width:100%;height:100%;object-fit:cover;display:block;cursor:default}
+.bcell{position:relative;overflow:hidden;cursor:pointer;background:#0a0a0c}
+.bcell img{width:100%;height:100%;object-fit:cover;display:block;cursor:pointer}
+/* 照片多选：蓝框勾选，跟主页卡片选中一个味道 */
+.bcell.psel{outline:3px solid var(--blue);outline-offset:-3px;border-radius:10px;
+  box-shadow:0 0 0 4px rgba(26,140,255,.22)}
+.bcell.psel::after{content:"✓";position:absolute;top:6px;right:6px;width:22px;height:22px;
+  border-radius:50%;background:var(--blue);color:#fff;font-size:13px;line-height:22px;
+  text-align:center;box-shadow:0 1px 4px rgba(0,0,0,.35);z-index:3}
+.pselbar{position:sticky;top:0;z-index:5;background:var(--card);border-bottom:1px solid var(--line);
+  margin:-14px -14px 12px;padding:8px 14px;display:flex;align-items:center;gap:8px}
+.pselbar .pselcount{font-size:13px;font-weight:600;color:var(--blue)}
 .bcell video{width:100%;height:100%;object-fit:cover;display:block}
 .bcell .player{height:100%;border-radius:0}
 
@@ -620,14 +684,16 @@ html:has(body.detail-mode){overflow-y:auto !important;height:auto !important}
 .aiactions{display:flex;align-items:center;gap:10px;margin-top:4px}
 
 /* 图片放大 */
-.lightbox{position:fixed;inset:0;background:rgba(8,9,11,.96);display:none;
+.lightbox{position:fixed;inset:0;background:#08090b;display:none;
   align-items:center;justify-content:center;z-index:200;cursor:default;
   user-select:none;-webkit-user-select:none;touch-action:none;overscroll-behavior:contain}
 .lightbox.on{display:flex}
 .lightbox.dragging{cursor:grabbing}
 .lbstage{position:absolute;inset:0;overflow:hidden;touch-action:none;transform-origin:50% 50%;transition:transform .18s cubic-bezier(.2,.8,.2,1);will-change:transform}
-.lblayer{position:absolute;inset:0;margin:auto;max-width:100vw;max-height:100vh;
-  object-fit:contain;display:block;will-change:transform;
+/* 图层盒子永远是满屏固定尺寸：几何不变、只换纹理，
+   WebKit 合成层就不会在旧尺寸/旧位置留下残影 */
+.lblayer{position:absolute;inset:0;width:100%;height:100%;margin:0;
+  max-width:none;max-height:none;object-fit:contain;display:block;
   transition:transform .22s cubic-bezier(.25,.7,.3,1);
   -webkit-user-drag:none;user-select:none;-webkit-user-select:none}
 .lblayer[hidden]{display:none}
@@ -702,8 +768,12 @@ html:has(body.detail-mode){overflow-y:auto !important;height:auto !important}
   height:38px;padding:0 14px;border-radius:8px;
   background:var(--card);border:1px solid var(--line);
   font-size:12.5px;color:var(--dim);user-select:none;box-sizing:border-box;
-  overflow:hidden;position:relative;
+  overflow:hidden;position:relative;cursor:pointer;
   transition:border-color .2s ease, background .2s ease}
+/* 可点（解析历史）：hover / 按下给反馈 */
+.statusbar:hover{background:var(--hover);border-color:#c9cfd6}
+.statusbar:hover .stext{color:var(--txt)}
+.statusbar:active{background:var(--blue-l);border-color:var(--blue)}
 
 /* 状态点：8px 实心圆，带一圈柔光 */
 .statusbar .dot{width:8px;height:8px;border-radius:50%;flex:none;
@@ -809,11 +879,41 @@ html:has(body.detail-mode){overflow-y:auto !important;height:auto !important}
 .batchfoot .sp{flex:1}
 /* 禁用态不要变深色：避免 hover 残影看起来像「多出来一块」 */
 button.primary:disabled:hover{background:var(--blue);border-color:var(--blue)}
-/* 解析中的 tab 打一个小呼吸点，切走了也知道还在跑 */
-.batchtabs button{position:relative}
-.batchtabs button.loading::after{content:"";position:absolute;top:7px;right:5px;width:6px;height:6px;
-  border-radius:50%;background:currentColor;opacity:.9;animation:bload 1s ease-in-out infinite}
-@keyframes bload{0%,100%{opacity:.25}50%{opacity:.95}}
+/* ---------- 解析历史窗口（点信号灯查看） ---------- */
+#dot{cursor:pointer}
+/* 搜索推荐下拉 */
+.qwrap{position:relative}
+.suggest{position:absolute;left:0;right:0;top:calc(100% + 4px);background:var(--card);
+  border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow-lg);
+  z-index:80;overflow:hidden auto;max-height:320px}
+.suggest.hidden{display:none}
+.sgrow{display:flex;align-items:center;gap:8px;padding:7px 12px;cursor:pointer;font-size:12.5px}
+.sgrow:hover{background:var(--hover)}
+.sgtag{font-size:10.5px;color:var(--dim);border:1px solid var(--line);border-radius:5px;padding:0 5px;flex:none}
+.sgn{margin-left:auto;color:var(--dim);font-size:11px}
+.histmask{position:fixed;inset:0;background:var(--overlay);z-index:320;
+  display:flex;align-items:center;justify-content:center}
+.histmask.hidden{display:none}
+.histpanel{width:min(780px,92vw);max-height:78vh;background:var(--card);
+  border:1px solid var(--line);border-radius:16px;display:flex;flex-direction:column;
+  box-shadow:var(--shadow-lg);overflow:hidden}
+.histhead{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line)}
+.histhead b{font-size:14px}
+.histhead .sp{flex:1}
+.hcount{font-size:12px;color:var(--dim)}
+.histbody{overflow:auto;padding:4px 0 14px}
+.histgroup{padding:10px 16px 4px;font-size:12px;color:var(--dim);font-weight:600}
+.histgroup.fail{color:var(--danger)}
+.hrow{display:flex;align-items:center;gap:10px;padding:8px 16px}
+.hrow:hover{background:var(--hover)}
+.htime{font-size:11.5px;color:var(--dim);width:76px;flex:none;font-variant-numeric:tabular-nums}
+.hplat{font-size:11px;color:var(--dim);border:1px solid var(--line);border-radius:6px;padding:1px 6px;flex:none}
+.hmain{flex:1;min-width:0}
+.htitle{font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hurl{font-size:11px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.herr{font-size:11.5px;color:var(--danger);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.htag{font-size:10.5px;color:var(--dim);border:1px solid var(--line);border-radius:5px;padding:0 5px;flex:none}
+.hacts{display:flex;gap:6px;flex:none}
 /* 归档到… / 隐藏管理 弹层里的分组 */
 .tgsec{display:flex;align-items:center;gap:8px;padding:9px 16px 5px;cursor:pointer;user-select:none}
 .tgsec b{color:var(--txt);font-size:12.5px}
@@ -901,8 +1001,8 @@ button.primary:disabled:hover{background:var(--blue);border-color:var(--blue)}
 <body>
 <header>
   <div class="bar">
-    <div class="statusbar" id="status" title="服务状态">
-      <span class="dot wait" id="dot"></span>
+    <div class="statusbar" id="status" title="服务状态 · 点信号灯看解析历史">
+      <span class="dot wait" id="dot" title="点击查看解析历史"></span>
       <span class="stext" id="statusText">检查中</span>
     </div>
     <div class="taskpop" id="taskPop"></div>
@@ -929,7 +1029,10 @@ button.primary:disabled:hover{background:var(--blue);border-color:var(--blue)}
   <aside>
     <div class="panel" data-panel="search">
       <h3>搜索</h3>
-      <input id="q" type="text" placeholder="标题 / 博主 / 链接">
+      <div class="qwrap">
+        <input id="q" type="text" placeholder="标题 / 博主 / 链接 / 拼音">
+        <div class="suggest hidden" id="suggest"></div>
+      </div>
     </div>
     <div class="panel" data-panel="platforms">
       <h3>平台</h3>
@@ -963,9 +1066,15 @@ button.primary:disabled:hover{background:var(--blue);border-color:var(--blue)}
       <button class="small" id="btnRepair" title="重新扫描归档目录，把在 Finder 里挪走的作品找回来">重新扫描修复</button>
       <button class="small" id="btnPrune">清理失效记录</button>
     </div>
+    <div class="backhome hidden" id="backHome">
+      <button class="small" id="btnBackHome">← 返回全部</button>
+      <span class="bh-name" id="backHomeName"></span>
+      <span class="sp"></span>
+      <button class="small" id="btnAuthorHome" title="在浏览器/App 中打开博主主页">打开主页 ↗</button>
+    </div>
     <div class="grid" id="grid"></div>
     <div class="loadmore hidden" id="loadMore">
-      <button class="small" id="btnLoadMore">加载更多</button>
+      <span class="lm-spin"></span><span class="lm-txt">加载中…</span>
     </div>
     <div class="empty" id="empty" style="display:none">
       <div class="big">◍</div>
@@ -975,6 +1084,18 @@ button.primary:disabled:hover{background:var(--blue);border-color:var(--blue)}
 </div>
 
 
+<!-- 解析历史窗口：点信号灯查看最近成功/失败记录 -->
+<div class="histmask hidden" id="histMask">
+  <div class="histpanel">
+    <div class="histhead">
+      <b>解析历史</b><span class="sp"></span>
+      <span class="hcount" id="histCount"></span>
+      <button class="small" id="histRefresh">刷新</button>
+      <button class="small" id="histClose">关闭</button>
+    </div>
+    <div class="histbody" id="histBody"></div>
+  </div>
+</div>
 <div class="lightbox" id="lightbox">
   <div class="lbtop">
     <button class="livechip" id="lbLiveBtn" hidden title="实况播放设置">
@@ -1249,6 +1370,11 @@ window.onerror = (m, src, line) => {
 };
 const $ = s => document.querySelector(s);
 let state = { q:"", platform:"", author:"", author_key:"", collection:null, active:true };   // author_key=博主稳定ID
+let _homeScrollTop = 0;   // 从行头点进博主前记住的主页滚动位置
+let _fromRowMode = false;  // 是否从苹果相册式行头点进来的
+let _fromSidebar = false;  // 是否从侧栏博主点进来的
+let _returnAuthorKey = ""; // 返回主页时要定位到的博主行
+let _entryRoute = "";      // 进入博主详情的来源：row=主页行头 / sidebar=侧栏
 
 /* 刷新时恢复上次的分类：sessionStorage 在同一个窗口内保留，App 重启后自动清空 */
 (function restoreState(){
@@ -1262,6 +1388,10 @@ function saveState(){
 }
 let current = null;
 let selected = new Set();
+/* 作品详情里的照片级多选 */
+let photoSelMode = false;        // 是否处于照片多选模式
+let photoSelItemId = null;       // 多选模式属于哪条作品
+let photoSel = new Set();        // 选中的文件 url（meta.img 或 meta.vid）
 let __authors = [];
 let __platforms = [];
 
@@ -1607,7 +1737,7 @@ async function moveItemsToAuthor(ids, mode){
   const exclude = first ? [first.author_key || first.author] : [];
   const a = await pickAuthor({
     title: mode === "copy" ? "复制到博主" : "移动到博主",
-    okText: mode === "copy" ? "复制过去" : "移动过去",
+    okText: mode === "copy" ? "复制" : "移动",
     hint: (mode === "copy" ? "保留原件，在目标博主下再放一份" : "原件跟着搬走，原博主下不再保留")
           + " · 共 " + ids.length + " 条",
     exclude,
@@ -1980,7 +2110,7 @@ function showCtxMenu(x, y, opts){
     const ctx = currentAuthorContext(opts);
     const where = ctx.isMine ? "我的作品"
       : (ctx.author + (ctx.platform_cn ? " · " + ctx.platform_cn : ""));
-    add("新建作品…（归到 " + where + "）", () => openNewWork(opts));
+    add("新建作品…", () => openNewWork(opts));
     add("隐藏博主「" + opts.author + "」", () =>
       hideConfirm("author", aKey, "博主「" + opts.author + "」及其作品"));
     sep();
@@ -2026,7 +2156,7 @@ function showCtxMenu(x, y, opts){
     const ctx = currentAuthorContext(opts);
     const where = ctx.isMine ? "我的作品"
       : (ctx.author + (ctx.platform_cn ? " · " + ctx.platform_cn : ""));
-    add("新建作品…（归到 " + where + "）", () => openNewWork(opts));
+    add("新建作品…", () => openNewWork(opts));
     add("新建博主…", async () => {
       const name = await askInput("新建博主", "新建后可以在它下面新建作品", "");
       if(!name) return;
@@ -2158,7 +2288,18 @@ document.addEventListener("mousedown", e => {
 window.addEventListener("blur", () => document.getElementById("ctxmenu")?.classList.remove("on"));
 window.addEventListener("scroll", () => document.getElementById("ctxmenu")?.classList.remove("on"), true);
 document.addEventListener("keydown", e => {
-  if(e.key === "Escape") document.getElementById("ctxmenu")?.classList.remove("on");
+  if(e.key === "Escape"){
+    document.getElementById("ctxmenu")?.classList.remove("on");
+    // Esc 关解析历史窗口 / 搜索推荐
+    document.getElementById("histMask")?.classList.add("hidden");
+    document.getElementById("suggest")?.classList.add("hidden");
+    // Esc 退出照片多选模式
+    if(photoSelMode){
+      photoSelMode = false; photoSelItemId = null; photoSel.clear();
+      document.querySelectorAll(".bcell.psel").forEach(c => c.classList.remove("psel"));
+      document.querySelectorAll(".pselbar").forEach(b => b.style.display = "none");
+    }
+  }
 });
 
 /* ---------- 长按拖动排序 ---------- */
@@ -2382,11 +2523,13 @@ async function checkHealth(){
     const h = await fetch("/api/health", {cache:"no-store"}).then(r => r.json());
     const ok = h.ok && h.archive_writable;
     _cdpConnected = !(h.douyin && h.douyin_cdp === false);
+    // 有活跃任务时不覆盖状态灯（由 polling tick 管理）
+    const hasRunning = document.getElementById("status")?.classList.contains("busy");
     if(!ok){
       setStatus("bad", h.ok ? "目录不可写" : "引擎缺失");
-    }else if(!_cdpConnected){
+    }else if(!_cdpConnected && !hasRunning){
       setStatus("warn", "未连接");
-    }else{
+    }else if(!hasRunning){
       setStatus("ok", "正常");
     }
   }catch(e){
@@ -2408,9 +2551,17 @@ const ITEMS_PAGE = 60;
 let hasMoreItems = false;
 let _loadToken = 0;
 
+function isRowMode(){
+  // 全部 / 单平台视图都用苹果相册式分行布局（平台视图按该平台博主挨着展示 + 置顶逻辑）
+  return !state.author && !state.author_key
+         && !state.collection && !state.q;
+}
+
 function itemsQuery(offset){
+  // 全部视图（苹果相册式）一次加载全部，不分页；筛选视图保持分页
+  const lim = isRowMode() ? 9999 : ITEMS_PAGE;
   const p = new URLSearchParams({ q: state.q, platform: state.platform,
-                                  limit: String(ITEMS_PAGE), offset: String(offset || 0) });
+                                  limit: String(lim), offset: String(offset || 0) });
   if(state.author_key) p.set("author_key", state.author_key);
   else p.set("author", state.author);
   if(state.collection) p.set("collection", state.collection);
@@ -2448,6 +2599,77 @@ async function loadAll(){
     __platforms = plats || [];
     renderItems(shown); renderPlatforms(plats); renderAuthors(authors);
     renderCollections(collectionsCache);
+
+    // 返回全部按钮 + 打开主页按钮：从行头或侧栏点进博主时显示
+    const bhEl = $("#backHome");
+    if(bhEl){
+      const inAuthorView = !!(state.author || state.author_key);
+      if((_fromRowMode || _fromSidebar) && inAuthorView){
+        bhEl.classList.remove("hidden");
+        const nameEl = $("#backHomeName");
+        if(nameEl) nameEl.textContent = state.author || "";
+        // 主页行头进来 → 「返回」（回原滚动位置）；侧栏进来 → 「定位」（回该博主的行）
+        const backBtn = $("#btnBackHome");
+        if(backBtn) backBtn.textContent = _entryRoute === "sidebar" ? "定位" : "← 返回";
+        // 查找博主主页 URL：库里没有就按平台拼，保证所有博主都有这个按钮
+        const authorData = (__authors || []).find(a =>
+          (a.author_key || a.author) === (state.author_key || state.author))
+          || { author: state.author, author_key: state.author_key,
+               author_id: state.author_key, platform: state.platform || "",
+               author_url: "" };
+        const authorUrl = authorHomeURLFor(authorData);
+        const homeBtn = $("#btnAuthorHome");
+        if(homeBtn){
+          homeBtn.style.display = "";
+          homeBtn.onclick = () => {
+            if(!authorUrl){ toast("这个博主没有可跳转的主页地址"); return; }
+            const native = nativeUserURLFor(authorData.platform, authorUrl,
+                          authorData.author_id || authorData.author_key);
+            if(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.openURL){
+              // App 内：优先本机客户端，没装回落浏览器
+              window.webkit.messageHandlers.openURL.postMessage({ url: authorUrl, native });
+            }else{
+              window.location.href = "mediaarchive://open?url=" + encodeURIComponent(authorUrl)
+                + (native ? "&native=" + encodeURIComponent(native) : "");
+            }
+          };
+        }
+      }else{
+        bhEl.classList.add("hidden");
+      }
+    }
+    // 回到主页时的滚动位置：优先定位到该博主的行，找不到再回落记忆位置
+    const mainEl = document.querySelector("main");
+    if(!_fromRowMode && !_fromSidebar){
+      if(_returnAuthorKey && mainEl){
+        const key = _returnAuthorKey;
+        const fallback = _homeScrollTop;
+        _returnAuthorKey = "";
+        _homeScrollTop = 0;
+        const scrollToRow = () => {
+          const rowEl = [...document.querySelectorAll("#grid .author-row")]
+            .find(r => r.dataset.authorKey === key);
+          if(!rowEl) return false;
+          const top = rowEl.getBoundingClientRect().top - mainEl.getBoundingClientRect().top
+                      + mainEl.scrollTop - 64;
+          mainEl.scrollTop = Math.max(0, top);
+          return true;
+        };
+        requestAnimationFrame(() => {
+          // 行还没渲染出来时回落记忆位置
+          if(!scrollToRow() && fallback > 0) mainEl.scrollTop = fallback;
+          // 图片懒加载会改变行高，稍后再校准一次
+          setTimeout(scrollToRow, 350);
+        });
+      }else if(_homeScrollTop > 0 && mainEl){
+        requestAnimationFrame(() => { mainEl.scrollTop = _homeScrollTop; });
+        _homeScrollTop = 0;
+      }
+    }else if(mainEl){
+      mainEl.scrollTop = 0;
+    }
+    _fromRowMode = false;
+    _fromSidebar = false;
     const emptyEl = $("#empty");
     if(emptyEl){
       if(state.active && shown.length === 0){
@@ -2506,88 +2728,260 @@ function posterURL(f){
 }
 
 function renderItems(items){
-  const g = $("#grid"); g.innerHTML = "";
+  const g = $("#grid");
   $("#empty").style.display = "none";
+
+  // 判断是否用苹果相册式分行布局：
+  // 只在「全部」视图（没有指定博主/平台/分类/搜索）时启用
+  const useRow = isRowMode() && items.length > 0;
+
+  // 先在离屏 fragment 里构建，再一次性替换到 grid，避免清空→重建的闪烁
+  const frag = document.createDocumentFragment();
+  const tmp = document.createElement("div");
+  if(useRow){
+    renderItemsGrouped(tmp, items);
+  }else{
+    renderItemsFlat(tmp, items);
+  }
+  // 把 tmp 的子节点移到 fragment（detach），然后一次性塞进 g
+  while(tmp.firstChild) frag.appendChild(tmp.firstChild);
+  g.className = "grid" + (useRow ? " row-mode" : "");
+  g.replaceChildren(frag);
+  // 键盘导航绑到 g 上（replaceChildren 后子节点已在 g 里）
+  attachGridKeyboard(g);
+}
+
+/* ---- 平铺网格（原有逻辑，用于筛选/搜索/单博主视图） ---- */
+function renderItemsFlat(g, items){
   const frag = document.createDocumentFragment();
   items.forEach(it => {
-    const fl = it.files || [];
-    const vidF = fl.find(f => f.kind === "video" && !/_live|^\d+\.mov$/i.test(f.name));
-    const imgF = fl.find(f => f.kind === "image");
-    const isVid = !!vidF;
-    const card = document.createElement("div");
-    card.className = "card" + (it.missing ? " missing" : "") + (it.analyzed ? " analyzed" : "");
-    card.dataset.id = String(it.id);
-    card.tabIndex = 0;
-    // 区分三种状态：missing=目录整个不见了；empty=目录在但还没放文件（刚建）；正常
-    const isEmpty = !!(it.empty && it.folder_exists);
-    const isMissing = !!(it.missing && !isEmpty);
-    const badgeCls = isMissing ? "miss" : (isEmpty ? "wait" : (isVid ? "v" : "i"));
-    const badgeTxt = isMissing ? "文件已丢失" : (isEmpty ? "待添加文件"
-      : (it.type === "视频" ? "视频" : it.type === "音频" ? "音频" : "图文"));
-    card.innerHTML = `
-      <div class="thumb">
-        ${vidF ? `<img src="${posterURL(vidF)}" loading="lazy" decoding="async" alt="">`
-               : imgF ? `<img src="${thumbURL(imgF)}" loading="lazy" decoding="async" alt="">`
-               : `<div class="ph">${isEmpty ? "＋" : "◌"}</div>`}
-        <div class="badge ${badgeCls}">${badgeTxt}</div>
-      </div>
-      <div class="body">
-        <div class="title">${esc(it.title) || "（无标题）"}</div>
-        <div class="author"><a href="#" class="authorlink" data-author="${esc(it.author || "")}" data-author-key="${esc(it.author_id || it.author || "")}">${esc(it.author) || "未知博主"}</a></div>
-        <div class="meta">
-          <span>${esc(it.platform_cn)}</span>
-          <span>${it.created || it.saved}</span>
-          ${it.digg ? `<span>♡ ${it.digg}</span>` : ""}
-        </div>
-      </div>`;
-    if(selected.has(it.id)) card.classList.add("selected");
-    // 记录按下位置，用来判断"拖动选文字"还是"真的点击"；同时支持长按进多选
-    let downPos = null;
-    let longTimer = null;
-    let longFired = false;          // 长按已经触发过，用来吃掉松手后的那次 click
-    card.onmousedown = ev => {
-      downPos = { x: ev.clientX, y: ev.clientY };
-      longFired = false;
-      longTimer = setTimeout(() => {
-        longTimer = null;
-        longFired = true;           // ← 标记：这次点击是长按引起的
-        enterBulkMode();
-        if(!selected.has(it.id)) toggleSelect(it.id, card);
-      }, 500);
-    };
-    card.onmouseup = () => { if(longTimer){ clearTimeout(longTimer); longTimer = null; } };
-    card.onmouseleave = () => { if(longTimer){ clearTimeout(longTimer); longTimer = null; } };
-    card.onclick = (ev) => {
-      // 0) 长按刚触发过 → 吃掉这次点击，否则会把刚选中的又取消掉
-      if(longFired){ longFired = false; return; }
-      // 1) 拖动超过 5px（选文字）→ 不当点击
-      if(downPos){
-        const moved = Math.hypot(ev.clientX - downPos.x, ev.clientY - downPos.y);
-        downPos = null;
-        if(moved > 5) return;
-      }
-      // 长按刚触发过 → 这次点击不再响应
-      if(longTimer === null && bulkMode && !selected.has(it.id) === false) { /* 继续走多选切换 */ }
-      // 2) 页面上有选中的文字 → 用户想 ⌘C，别抢
-      const sel = window.getSelection && window.getSelection();
-      if(sel && sel.toString().trim().length > 0) return;
-      // 3) 点博主名/外链 → 交给专门的处理
-      if(ev.target.closest(".authorlink") || ev.target.closest("a[href^='http']")) return;
-      if(selected.size > 0){ toggleSelect(it.id, card); return; }
-      // App 内：交给原生窗口；浏览器里：回退到浮动面板
-      if(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.openDetail){
-        window.webkit.messageHandlers.openDetail.postMessage({
-          id: String(it.id), title: it.title || "",
-          platform: it.platform || "", item_id: it.item_id || ""
-        });
-      }else{
-        openItem(it);
-      }
-    };
+    const card = buildCard(it);
     frag.appendChild(card);
   });
   g.appendChild(frag);
-  // Keyboard navigation for card grid
+}
+
+/* ---- 按博主分组的横滚行（苹果相册式） ---- */
+function renderItemsGrouped(g, items){
+  // 按 author_key 分组，保持 items 数组中的出现顺序
+  const groups = new Map();
+  items.forEach(it => {
+    const key = it.author_key || it.author_id || it.author || "未知博主";
+    if(!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(it);
+  });
+
+  // 排序：按 pins.json 里的顺序排（索引越小越靠前），未置顶的保持原序排在后面
+  const pinOrder = (__authors || []).filter(a => a.pinned).map(a => a.author_key || a.author);
+  const pinIdx = new Map(pinOrder.map((k, i) => [k, i]));
+  const sortedKeys = [...groups.keys()].sort((a, b) => {
+    const ia = pinIdx.has(a) ? pinIdx.get(a) : 999999;
+    const ib = pinIdx.has(b) ? pinIdx.get(b) : 999999;
+    return ia - ib;
+  });
+
+  sortedKeys.forEach(key => {
+    const groupItems = groups.get(key);
+    const first = groupItems[0];
+    const authorName = first.author || "未知博主";
+    const platformCn = first.platform_cn || "";
+    const isSingle = groupItems.length <= 1;
+    const authorKey = first.author_key || first.author_id || first.author || "";
+    const isPinned = pinIdx.has(authorKey);
+
+    const row = document.createElement("div");
+    row.className = "author-row" + (isSingle ? " single" : "");
+    row.dataset.authorKey = key;
+
+    // 头部
+    const hdr = document.createElement("div");
+    hdr.className = "author-row-hdr";
+    hdr.innerHTML = `${isPinned ? '<span class="ar-pin" title="已置顶">📌</span>' : ''}
+      <span class="ar-name">${esc(authorName)}</span>
+      <svg class="ar-chev" viewBox="0 0 24 24"><path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6z"/></svg>
+      <span class="ar-cnt">${groupItems.length} 条</span>
+      ${platformCn ? `<span class="ar-plat">${esc(platformCn)}</span>` : ""}`;
+    hdr.onclick = () => {
+      const mainEl = document.querySelector("main");
+      _homeScrollTop = mainEl ? mainEl.scrollTop : 0;
+      _fromRowMode = true;
+      _entryRoute = "row";
+      state.author = authorName;
+      state.author_key = authorKey;
+      state.platform = "";
+      state.collection = null;
+      loadAll();
+    };
+    // 右键菜单：置顶 / 移到最前 / 取消置顶 / 重命名
+    hdr.oncontextmenu = (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      const m = document.getElementById("ctxmenu");
+      const aPlatform = first.platform || "";
+      let html = "";
+      if(!isPinned){
+        html += `<div class="ctxrow" data-act="pin">置顶「${esc(authorName)}」</div>`;
+      }else{
+        html += `<div class="ctxrow" data-act="top">移到最前</div>`;
+        html += `<div class="ctxrow" data-act="unpin">取消置顶「${esc(authorName)}」</div>`;
+      }
+      html += `<div class="ctxrow" data-act="rename">重命名博主…</div>`;
+      html += `<div class="ctxrow" data-act="hide">隐藏博主「${esc(authorName)}」</div>`;
+      m.innerHTML = html;
+      m.style.left = Math.min(ev.clientX, window.innerWidth - 220) + "px";
+      m.style.top = Math.min(ev.clientY, window.innerHeight - 140) + "px";
+      m.classList.add("on");
+      const pinBtn = m.querySelector("[data-act='pin']");
+      if(pinBtn) pinBtn.onclick = () => {
+        m.classList.remove("on");
+        fetch("/api/pin", { method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ kind: "authors", key: authorKey, pinned: true })
+        }).then(() => loadAll());
+      };
+      const topBtn = m.querySelector("[data-act='top']");
+      if(topBtn) topBtn.onclick = () => {
+        m.classList.remove("on");
+        fetch("/api/pin", { method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ kind: "authors", key: authorKey, action: "top" })
+        }).then(() => loadAll());
+      };
+      const unpinBtn = m.querySelector("[data-act='unpin']");
+      if(unpinBtn) unpinBtn.onclick = () => {
+        m.classList.remove("on");
+        fetch("/api/pin", { method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ kind: "authors", key: authorKey, pinned: false })
+        }).then(() => loadAll());
+      };
+      const renameBtn = m.querySelector("[data-act='rename']");
+      if(renameBtn) renameBtn.onclick = () => {
+        m.classList.remove("on");
+        renameAuthorFlow(authorName, authorKey, aPlatform);
+      };
+      const hideBtn = m.querySelector("[data-act='hide']");
+      if(hideBtn) hideBtn.onclick = () => {
+        m.classList.remove("on");
+        hideConfirm("author", authorKey || authorName, "博主「" + authorName + "」及其作品");
+      };
+    };
+    row.appendChild(hdr);
+
+    // 横向轨道
+    const trackWrap = document.createElement("div");
+    trackWrap.className = "author-track-wrap";
+    const track = document.createElement("div");
+    track.className = "author-track";
+    groupItems.forEach(it => track.appendChild(buildCard(it)));
+    trackWrap.appendChild(track);
+
+    // 左右箭头
+    if(!isSingle){
+      const mkArrow = (dir, cls) => {
+        const btn = document.createElement("button");
+        btn.className = "ar-arrow " + cls;
+        btn.innerHTML = dir < 0
+          ? '<svg viewBox="0 0 24 24"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>'
+          : '<svg viewBox="0 0 24 24"><path d="M8.59 16.59L10 18l6-6-6-6-1.41 1.41L13.17 12z"/></svg>';
+        btn.onclick = () => track.scrollBy({ left: dir * 380, behavior: "smooth" });
+        return btn;
+      };
+      trackWrap.appendChild(mkArrow(-1, "left"));
+      trackWrap.appendChild(mkArrow(1, "right"));
+
+      // 滚动时更新箭头可见性 + 右侧渐变
+      const updateArrows = () => {
+        const atStart = track.scrollLeft <= 2;
+        const atEnd = track.scrollLeft + track.clientWidth >= track.scrollWidth - 2;
+        trackWrap.querySelector(".ar-arrow.left").style.opacity = atStart ? "0" : "";
+        trackWrap.querySelector(".ar-arrow.right").style.opacity = atEnd ? "0" : "";
+        trackWrap.classList.toggle("has-more", !atEnd);
+      };
+      track.addEventListener("scroll", updateArrows, { passive: true });
+      requestAnimationFrame(updateArrows);
+    }
+
+    row.appendChild(trackWrap);
+    g.appendChild(row);
+  });
+}
+
+/* ---- 构建单张卡片（两种模式共用） ---- */
+function buildCard(it){
+  const fl = it.files || [];
+  const vidF = fl.find(f => f.kind === "video" && !/_live|^\d+\.mov$/i.test(f.name));
+  const imgF = fl.find(f => f.kind === "image");
+  const isVid = !!vidF;
+  const card = document.createElement("div");
+  card.className = "card" + (it.missing ? " missing" : "") + (it.analyzed ? " analyzed" : "");
+  card.dataset.id = String(it.id);
+  card.tabIndex = 0;
+  const isEmpty = !!(it.empty && it.folder_exists);
+  const isMissing = !!(it.missing && !isEmpty);
+  const badgeCls = isMissing ? "miss" : (isEmpty ? "wait" : (isVid ? "v" : "i"));
+  const badgeTxt = isMissing ? "文件已丢失" : (isEmpty ? "待添加文件"
+    : (it.type === "视频" ? "视频" : it.type === "音频" ? "音频" : "图文"));
+  card.innerHTML = `
+    <div class="thumb">
+      ${vidF ? `<img src="${posterURL(vidF)}" loading="lazy" decoding="async" alt="">`
+             : imgF ? `<img src="${thumbURL(imgF)}" loading="lazy" decoding="async" alt="">`
+             : `<div class="ph">${isEmpty ? "＋" : "◌"}</div>`}
+      <div class="badge ${badgeCls}">${badgeTxt}</div>
+    </div>
+    <div class="body">
+      <div class="title">${esc(it.title) || "（无标题）"}</div>
+      <div class="author"><a href="#" class="authorlink" data-author="${esc(it.author || "")}" data-author-key="${esc(it.author_id || it.author || "")}">${esc(it.author) || "未知博主"}</a></div>
+      <div class="meta">
+        <span>${esc(it.platform_cn)}</span>
+        <span>${it.created || it.saved}</span>
+        ${it.digg ? `<span>♡ ${it.digg}</span>` : ""}
+      </div>
+    </div>`;
+  if(selected.has(it.id)) card.classList.add("selected");
+  let downPos = null;
+  let longTimer = null;
+  let longFired = false;
+  card.onmousedown = ev => {
+    downPos = { x: ev.clientX, y: ev.clientY };
+    longFired = false;
+    longTimer = setTimeout(() => {
+      longTimer = null;
+      longFired = true;
+      enterBulkMode();
+      if(!selected.has(it.id)) toggleSelect(it.id, card);
+    }, 500);
+  };
+  card.onmouseup = () => { if(longTimer){ clearTimeout(longTimer); longTimer = null; } };
+  card.onmouseleave = () => { if(longTimer){ clearTimeout(longTimer); longTimer = null; } };
+  card.onclick = (ev) => {
+    if(longFired){ longFired = false; return; }
+    if(downPos){
+      const moved = Math.hypot(ev.clientX - downPos.x, ev.clientY - downPos.y);
+      downPos = null;
+      if(moved > 5) return;
+    }
+    if(longTimer === null && bulkMode && !selected.has(it.id) === false) { /* 继续走多选切换 */ }
+    const sel = window.getSelection && window.getSelection();
+    if(sel && sel.toString().trim().length > 0) return;
+    if(ev.target.closest(".authorlink") || ev.target.closest("a[href^='http']")) return;
+    if(selected.size > 0){ toggleSelect(it.id, card); return; }
+    if(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.openDetail){
+      window.webkit.messageHandlers.openDetail.postMessage({
+        id: String(it.id), title: it.title || "",
+        platform: it.platform || "", item_id: it.item_id || ""
+      });
+    }else{
+      openItem(it);
+    }
+  };
+  return card;
+}
+
+/* ---- 键盘导航（两种模式共用） ---- */
+function attachGridKeyboard(g){
+  if(g._gridKbAttached) return;
+  g._gridKbAttached = true;
   g.addEventListener("keydown", e => {
     const card = e.target.closest(".card");
     if(!card) return;
@@ -2596,10 +2990,38 @@ function renderItems(items){
       card.click();
       return;
     }
+    // 在横滚行内：左右键在同一行内移动，上下键跳到相邻行
+    const row = card.closest(".author-row");
+    if(row){
+      const track = row.querySelector(".author-track");
+      const cards = [...track.querySelectorAll(".card")];
+      const idx = cards.indexOf(card);
+      if(idx < 0) return;
+      let next = -1;
+      if(e.key === "ArrowRight") next = Math.min(idx + 1, cards.length - 1);
+      else if(e.key === "ArrowLeft") next = Math.max(idx - 1, 0);
+      else if(e.key === "ArrowDown" || e.key === "ArrowUp"){
+        e.preventDefault();
+        const rows = [...g.querySelectorAll(".author-row")];
+        const ri = rows.indexOf(row);
+        const targetRow = e.key === "ArrowDown" ? rows[ri + 1] : rows[ri - 1];
+        if(targetRow){
+          const tc = targetRow.querySelector(".card");
+          if(tc) tc.focus();
+        }
+        return;
+      }
+      if(next >= 0 && next !== idx){
+        e.preventDefault();
+        cards[next].focus();
+        cards[next].scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
+      }
+      return;
+    }
+    // 平铺 grid 模式
     const cards = [...g.querySelectorAll(".card")];
     const idx = cards.indexOf(card);
     if(idx < 0) return;
-    // Compute columns from grid layout
     const gridStyle = getComputedStyle(g);
     const cols = gridStyle.gridTemplateColumns.split(" ").length || 1;
     let next = -1;
@@ -2854,6 +3276,8 @@ function renderAuthors(rows){
     if(e.key === "Enter" || e.key === " "){ e.preventDefault(); all.click(); }
   });
   all.onclick = () => {
+    if(_entryRoute === "sidebar") _returnAuthorKey = state.author_key || state.author || "";
+    _entryRoute = "";
     state.active = true;
     state.collection = null;
     state.author = ""; state.author_key = ""; state.platform = "";
@@ -2876,7 +3300,13 @@ function renderAuthors(rows){
     d.addEventListener("keydown", e => {
       if(e.key === "Enter" || e.key === " "){ e.preventDefault(); d.click(); }
     });
-    d.onclick = () => { state.active = true; state.author = r.author; state.author_key = key; state.platform = ""; state.collection = null; loadAll(); };
+    d.onclick = () => {
+      const mainEl = document.querySelector("main");
+      _homeScrollTop = mainEl ? mainEl.scrollTop : 0;
+      _fromSidebar = true;
+      _entryRoute = "sidebar";
+      state.active = true; state.author = r.author; state.author_key = key; state.platform = ""; state.collection = null; loadAll();
+    };
     box.appendChild(d);
   });
   makeDraggable(box, "authors", c => c.dataset.author || "");
@@ -3020,6 +3450,29 @@ function openItem(it){
     const on = document.webkitFullscreenElement === p;
     maxBtn.textContent = on ? "⤡" : "⤢";
   });
+
+  // 上下键切换同博主的作品（设置里可关：arrow_switch_works）
+  p.tabIndex = -1;
+  p.addEventListener("keydown", e => {
+    if(e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+    if(window.__maCfg && window.__maCfg.arrow_switch_works === false) return;
+    // 如果焦点在输入框里，不拦截
+    if(e.target.matches("input,textarea,select")) return;
+    e.preventDefault();
+    const ak = it.author_key || it.author_id || it.author || "";
+    const siblings = (itemsCache || []).filter(x =>
+      (x.author_key || x.author_id || x.author || "") === ak);
+    if(siblings.length <= 1) return;
+    const idx = siblings.findIndex(x => String(x.id) === String(it.id));
+    if(idx < 0) return;
+    const next = e.key === "ArrowDown"
+      ? siblings[(idx + 1) % siblings.length]
+      : siblings[(idx - 1 + siblings.length) % siblings.length];
+    // 关闭当前面板，打开下一个
+    p.remove();
+    openItem(next);
+  });
+
   return p;
 }
 
@@ -3030,7 +3483,8 @@ function nativeURLFor(platform, itemId, sourceUrl){
     case "xiaohongshu":
       return id ? "xhsdiscover://item/" + encodeURIComponent(id) : "xhsdiscover://";
     case "douyin":
-      return id ? "douyin-pc://aweme/detail/" + encodeURIComponent(id) : "";
+      // 同主页：客户端只认 douyin-pc://webview?url=… 格式
+      return id ? "douyin-pc://webview?url=" + encodeURIComponent("https://www.douyin.com/video/" + id) : "";
     case "telegram": {
       const m = String(sourceUrl || "").match(/t\.me\/(?:s\/)?([^/?#]+)\/(\d+)/);
       return m ? "tg://resolve?domain=" + encodeURIComponent(m[1]) + "&post=" + m[2] : "tg://";
@@ -3049,6 +3503,37 @@ function nativeURLFor(platform, itemId, sourceUrl){
   }
 }
 
+// 博主主页网页地址：库里没存 author_url 时按平台 + ID 拼出来，保证每个博主都有得跳
+function authorHomeURLFor(a){
+  if(!a) return "";
+  if(a.author_url) return a.author_url;
+  const id = String(a.author_id || a.author_key || "");
+  const name = String(a.author || "");
+  switch(String(a.platform || "").toLowerCase()){
+    case "douyin":
+      return id ? "https://www.douyin.com/user/" + encodeURIComponent(id) : "";
+    case "xiaohongshu":
+      return id ? "https://www.xiaohongshu.com/user/profile/" + encodeURIComponent(id) : "";
+    case "bilibili":
+      return id ? "https://space.bilibili.com/" + encodeURIComponent(id)
+                : (name ? "https://search.bilibili.com/up?keyword=" + encodeURIComponent(name) : "");
+    case "weibo":
+      return id ? "https://weibo.com/" + encodeURIComponent(id)
+                : (name ? "https://s.weibo.com/weibo?q=" + encodeURIComponent(name) : "");
+    case "x": case "twitter":
+      return name ? "https://x.com/" + encodeURIComponent(name) : "";
+    case "telegram":
+      return name ? "https://t.me/" + encodeURIComponent(name) : "";
+    case "youtube":
+      return id ? "https://www.youtube.com/channel/" + encodeURIComponent(id)
+                : (name ? "https://www.youtube.com/results?search_query=" + encodeURIComponent(name) : "");
+    case "threads": case "instagram":
+      return name ? "https://www.threads.net/@" + encodeURIComponent(name) : "";
+    default:
+      return "";
+  }
+}
+
 // 博主主页也优先交给本机客户端
 function nativeUserURLFor(platform, authorUrl, authorId){
   const u = String(authorUrl || "");
@@ -3060,8 +3545,11 @@ function nativeUserURLFor(platform, authorUrl, authorId){
       return uid ? "xhsdiscover://user/" + encodeURIComponent(uid) : "xhsdiscover://";
     }
     case "douyin": {
+      // 抖音 Mac 客户端的深链格式是 douyin-pc://webview?url=<编码后的网页地址>
+      // （asar 里 scheme parser 要求 webview 路径 + url 查询参数；/user/profile/ 旧格式会被忽略）
       const m = u.match(/user\/([^/?#]+)/);
-      return m ? "douyin-pc://user/profile/" + encodeURIComponent(m[1]) : "";
+      const uid = (m && m[1]) || id;
+      return uid ? "douyin-pc://webview?url=" + encodeURIComponent("https://www.douyin.com/user/" + uid) : "";
     }
     case "telegram": {
       const m = u.match(/t\.me\/([^/?#]+)/);
@@ -3199,7 +3687,6 @@ function renderPanelContent(it, b){
         isLive
       };
       cells.push(meta);
-      if(thumb) thumb.onclick = () => openLightbox(cells, cells.indexOf(meta));
       if(liveTag){
         const idx = cells.indexOf(meta);
         liveTag.onclick = ev => {
@@ -3207,6 +3694,64 @@ function renderPanelContent(it, b){
           openLightbox(cells, idx);
         };
       }
+      // 单击：多选模式下勾选/取消，否则开灯箱
+      cell.onclick = (ev) => {
+        if(ev.target.closest(".livechip")) return;
+        if(photoSelMode && photoSelItemId === String(it.id)){
+          togglePhotoSel(meta);
+          return;
+        }
+        openLightbox(cells, cells.indexOf(meta));
+      };
+      // 右键图片：添加 / 删除单个文件；多选模式下改成勾选
+      cell.oncontextmenu = (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        if(photoSelMode && photoSelItemId === String(it.id)){
+          togglePhotoSel(meta);
+          return;
+        }
+        const m = document.getElementById("ctxmenu");
+        const fileLabel = g.image ? g.image.name : (g.video ? g.video.name : "文件");
+        m.innerHTML = `<div class="ctxrow" data-act="addimg">添加照片或视频…</div>`
+          + `<div class="ctxrow" data-act="selmode">多选照片</div>`
+          + `<div class="ctxrow ctxdanger" data-act="delfile">删除「${esc(fileLabel)}」</div>`;
+        m.style.left = Math.min(ev.clientX, window.innerWidth - 220) + "px";
+        m.style.top = Math.min(ev.clientY, window.innerHeight - 130) + "px";
+        m.classList.add("on");
+        m.querySelector("[data-act='addimg']").onclick = () => {
+          m.classList.remove("on");
+          addFilesToItem(it).then(() => refreshOpenPanel(it.id));
+        };
+        m.querySelector("[data-act='selmode']").onclick = () => {
+          m.classList.remove("on");
+          enterPhotoSel(it, meta);
+        };
+        m.querySelector("[data-act='delfile']").onclick = async () => {
+          m.classList.remove("on");
+          const ok = await askConfirm("删除文件", "确定从这条作品里移除「" + fileLabel + "」？\n文件会移到废纸篓。", "删除", true);
+          if(!ok) return;
+          const filePath = g.image ? mediaPath(g.image.url) : (g.video ? mediaPath(g.video.url) : "");
+          if(!filePath) return;
+          const r = await fetch("/api/delete_file", { method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ item_id: it.id, path: filePath })
+          }).then(x => x.json()).catch(() => null);
+          if(r && r.ok){ toast("已移除"); refreshOpenPanel(it.id); }
+          else toast("失败：" + ((r && r.error) || ""));
+        };
+      };
+      // 长按图片 500ms：进入照片多选模式并勾上这张
+      let _lpTimer = null;
+      cell.addEventListener("mousedown", (ev) => {
+        if(ev.button !== 0) return;
+        _lpTimer = setTimeout(() => {
+          _lpTimer = null;
+          enterPhotoSel(it, meta);
+        }, 500);
+      });
+      cell.addEventListener("mouseup", () => { if(_lpTimer){ clearTimeout(_lpTimer); _lpTimer = null; } });
+      cell.addEventListener("mouseleave", () => { if(_lpTimer){ clearTimeout(_lpTimer); _lpTimer = null; } });
     });
 
     // 每 4 张拼一个气泡
@@ -3219,6 +3764,69 @@ function renderPanelContent(it, b){
       gallery.appendChild(bubble);
     }
     b.appendChild(gallery);
+
+    // ---- 照片多选操作条 ----
+    const pselBar = document.createElement("div");
+    pselBar.className = "pselbar";
+    pselBar.style.display = "none";
+    pselBar.innerHTML = `<span class="pselcount">已选 0 张</span>
+      <button class="small" data-psel="all">全选</button>
+      <span class="sp"></span>
+      <button class="small" data-psel="del" style="color:var(--danger)">删除选中</button>
+      <button class="small" data-psel="cancel">取消</button>`;
+    b.insertBefore(pselBar, b.firstChild);
+
+    function photoKey(mm){ return mm.img || mm.vid; }
+    function updatePhotoSelUI(){
+      const on = photoSelMode && photoSelItemId === String(it.id);
+      pselBar.style.display = on ? "" : "none";
+      cells.forEach(mm => mm.cell.classList.toggle("psel", on && photoSel.has(photoKey(mm))));
+      if(on) pselBar.querySelector(".pselcount").textContent = "已选 " + photoSel.size + " 张";
+    }
+    function enterPhotoSel(item, meta){
+      if(photoSelItemId !== String(item.id)) photoSel.clear();
+      photoSelMode = true;
+      photoSelItemId = String(item.id);
+      const k = photoKey(meta);
+      if(k) photoSel.add(k);
+      updatePhotoSelUI();
+      toast("照片多选：点照片勾选 / 取消，再点「删除选中」批量删");
+    }
+    function togglePhotoSel(meta){
+      const k = photoKey(meta);
+      if(!k) return;
+      if(photoSel.has(k)) photoSel.delete(k); else photoSel.add(k);
+      updatePhotoSelUI();
+    }
+    pselBar.querySelector("[data-psel='all']").onclick = () => {
+      cells.forEach(mm => { const k = photoKey(mm); if(k) photoSel.add(k); });
+      updatePhotoSelUI();
+    };
+    pselBar.querySelector("[data-psel='cancel']").onclick = () => {
+      photoSelMode = false; photoSelItemId = null; photoSel.clear();
+      updatePhotoSelUI();
+    };
+    pselBar.querySelector("[data-psel='del']").onclick = async () => {
+      const ks = [...photoSel];
+      if(!ks.length){ toast("还没选照片"); return; }
+      const ok = await askConfirm("删除照片",
+        "删除选中的 " + ks.length + " 个文件？\n文件会移到废纸篓。", "删除", true);
+      if(!ok) return;
+      let done = 0;
+      for(const k of ks){
+        const p = mediaPath(k);
+        if(!p) continue;
+        const r = await fetch("/api/delete_file", { method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ item_id: it.id, path: p })
+        }).then(x => x.json()).catch(() => null);
+        if(r && r.ok) done++;
+      }
+      photoSelMode = false; photoSelItemId = null; photoSel.clear();
+      toast("已删除 " + done + " 个文件");
+      refreshOpenPanel(it.id);
+    };
+    updatePhotoSelUI();
   }
   applyAutoState();          // 让缩略图上的实况角标与当前自动播放状态一致
   const kv = document.createElement("div"); kv.className = "kv";
@@ -3226,60 +3834,14 @@ function renderPanelContent(it, b){
   kv.innerHTML = `
     <span>标题</span><b class="kvtitle">${esc(it.title || "")}</b>
     <span>平台</span><b>${esc(it.platform_cn)}</b>
-    <span>博主</span><b><a href="#" class="authorlink" data-author="${esc(it.author || "")}" data-author-key="${esc(it.author_id || it.author || "")}">${esc(it.author) || "未知博主"}</a>${it.author_url ? ` · <a href="${esc(it.author_url)}" class="outlink" data-native="${esc(nativeUserURLFor(it.platform, it.author_url, it.author_id))}">主页</a>` : ""}</b>
+    <span>博主</span><b><a href="#" class="authorlink" data-author="${esc(it.author || "")}" data-author-key="${esc(it.author_id || it.author || "")}">${esc(it.author) || "未知博主"}</a>${(() => { const hu = authorHomeURLFor(it); return hu ? ` · <a href="${esc(hu)}" class="outlink" data-native="${esc(nativeUserURLFor(it.platform, hu, it.author_id))}">主页</a>` : ""; })()}</b>
     <span>发布时间</span><b>${esc(created) || "—"}</b>
     <span>互动</span><b>♡ ${it.digg ?? "—"} ｜ 评论 ${it.comment ?? "—"} ｜ 收藏 ${it.collect ?? "—"}</b>
     <span>原帖</span><b><a href="${esc(it.source_url)}" target="_blank" class="outlink" data-native="${esc(nativeURLFor(it.platform, it.item_id, it.source_url))}">打开</a></b>`;
   b.appendChild(kv);
   // 有 .mov 配对才显示「导入到照片」
   const hasLive = hasLivePair(files);
-  if(hasLive){
-    const bar = document.createElement("div");
-    bar.className = "dactbar";
-    const btn = document.createElement("button");
-    btn.className = "primary small";
-    btn.textContent = "导入实况照片到「照片」App";
-    btn.title = "把这组的 .jpg + .mov 合成真实况照片写入相册";
-    btn.onclick = async () => {
-      if(btn.disabled) return;
-      const label = btn.textContent;
-      btn.disabled = true;
-      btn.textContent = "正在准备实况…";
-      // 0) 先把 01.jpg + 01_live.mp4 合成 App 认的 01.mov（已转过会直接复用）
-      let prep = null;
-      try{
-        prep = await fetch("/api/prepare_live", {
-          method: "POST", headers: {"Content-Type": "application/json"},
-          body: JSON.stringify({ folder: it.folder })
-        }).then(x => x.json());
-      }catch(e){}
-      btn.disabled = false;
-      btn.textContent = label;
-      if(!prep || !prep.ok){
-        const why = (prep && (prep.error || (prep.detail && prep.detail.error))) || "未知错误";
-        toast("实况配对准备失败：" + why);
-        return;
-      }
-      if(!prep.pairs){
-        toast("这条作品里没有可导入的实况配对");
-        return;
-      }
-      // 1) App 内直接桥接（最快）
-      if(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.importLive){
-        window.webkit.messageHandlers.importLive.postMessage({ dir: it.folder });
-        toast("已准备好 " + prep.pairs + " 组实况，开始导入");
-        return;
-      }
-      // 2) 浏览器 / 桥不可用 → 写后端队列，App 轮询取走
-      const r = await fetch("/api/import_live", {method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({ item_id: it.id })}).then(x => x.json()).catch(() => null);
-      if(r && r.ok) toast("已交给 App 排队导入");
-      else toast("发起导入失败：" + ((r && r.error) || "未知错误"));
-    };
-    bar.appendChild(btn);
-    b.insertBefore(bar, b.firstChild);
-  }
+  // 「导入实况照片到照片 App」按钮已移除（用户不需要）
   return { hasLive };
 }
 
@@ -3440,7 +4002,7 @@ async function removeItem(it, panel){
 /* ---------- 批量选择 ---------- */
 function toggleSelect(id, card){
   if(selected.has(id)) selected.delete(id); else selected.add(id);
-  card.classList.toggle("selected", selected.has(id));
+  if(card) card.classList.toggle("selected", selected.has(id));
   updateBulkBar();
 }
 function updateBulkBar(){
@@ -3685,7 +4247,7 @@ function renderTasks(list){
     const keep = t.status === "error" ? 20 : (t.status === "cancelled" ? 3 : 5);
     const fin = t.finished || 0;
     return fin > 0 && (nowSec - fin) < keep;
-  }).slice(0, 40);
+  });
   const st = $("#status"), caret = $("#statusCaret"), pop = $("#taskPop");
   // #statusCaret / #sbar 这两个元素在当前布局里已经没有了，取不到就跳过，
   // 别让一个空引用把整个任务轮询渲染打断
@@ -4417,13 +4979,154 @@ document.addEventListener("click", e => { if(!e.target.closest(".histwrap")) $("
 $("#url").addEventListener("keydown", e => { if(e.key === "Enter") startArchive(e.target.value.trim()); });
 $("#q").oninput = e => {
   clearTimeout(window._qt);
-  window._qt = setTimeout(() => { state.q = e.target.value.trim(); loadAll(); }, 250);
+  const v = e.target.value.trim();
+  window._qt = setTimeout(() => { state.q = v; loadAll(); }, 250);
+  clearTimeout(window._st);
+  window._st = setTimeout(() => fetchSuggest(v), 120);
 };
-$("#status").onclick = () => {
-  if(!$("#status").classList.contains("busy")) return;
+$("#q").onfocus = () => {
+  const v = $("#q").value.trim();
+  if(v) fetchSuggest(v);
+};
+document.addEventListener("mousedown", e => {
+  if(!e.target.closest(".qwrap")) $("#suggest").classList.add("hidden");
+});
+async function fetchSuggest(q){
+  const box = $("#suggest");
+  if(!box) return;
+  if(!q){ box.classList.add("hidden"); box.innerHTML = ""; return; }
+  let j = null;
+  try{ j = await fetch("/api/suggest?q=" + encodeURIComponent(q)).then(x => x.json()); }catch(e){}
+  const auth = (j && j.authors) || [], plat = (j && j.platforms) || [];
+  if(!auth.length && !plat.length){ box.classList.add("hidden"); box.innerHTML = ""; return; }
+  let html = "";
+  plat.forEach(p => {
+    html += '<div class="sgrow" data-kind="platform" data-name="' + esc(p.name) + '">'
+      + '<span class="sgtag">平台</span><span>' + esc(p.name) + '</span>'
+      + '<span class="sgn">' + (p.n || "") + '</span></div>';
+  });
+  auth.forEach(a => {
+    html += '<div class="sgrow" data-kind="author" data-name="' + esc(a.name) + '">'
+      + '<span class="sgtag">博主</span><span>' + esc(a.name) + '</span>'
+      + (a.platform_cn ? '<span class="sgtag">' + esc(a.platform_cn) + '</span>' : '')
+      + '<span class="sgn">' + (a.n || "") + '</span></div>';
+  });
+  box.innerHTML = html;
+  box.classList.remove("hidden");
+}
+$("#suggest").addEventListener("mousedown", e => {
+  const row = e.target.closest(".sgrow");
+  if(!row) return;
+  e.preventDefault();
+  const name = row.dataset.name || "";
+  const kind = row.dataset.kind;
+  $("#suggest").classList.add("hidden");
+  state.active = true;
+  state.author = ""; state.author_key = ""; state.collection = null; state.q = "";
+  $("#q").value = "";
+  if(kind === "platform"){
+    state.platform = name;   // 平台视图：行模式按该平台博主挨着展示 + 置顶
+  }else{
+    state.author = name;     // 博主视图
+  }
+  loadAll();
+});
+$("#status").onclick = (e) => {
+  // 点信号灯本身、或空闲态点状态条 → 解析历史窗口；busy 态点其他区域仍是任务弹层（原逻辑不变）
+  if(e.target.closest("#dot") || !$("#status").classList.contains("busy")){
+    openHist();
+    return;
+  }
   taskPopOpen = !taskPopOpen;
   $("#taskPop").classList.toggle("on", taskPopOpen);
 };
+
+/* ---------- 解析历史窗口 ---------- */
+function histFmtTime(ts){
+  const d = new Date((ts || 0) * 1000);
+  const p = n => String(n).padStart(2, "0");
+  return p(d.getMonth() + 1) + "-" + p(d.getDate()) + " " + p(d.getHours()) + ":" + p(d.getMinutes());
+}
+function histRowHTML(r){
+  const fail = r.status !== "done";
+  const title = r.title || r.url || "（无标题）";
+  const tag = r.status === "cancelled" ? '<span class="htag">已取消</span>'
+            : (r.duplicate || r.skipped) ? '<span class="htag">重复跳过</span>' : "";
+  const sub = fail && r.error ? '<div class="herr">' + esc(r.error) + '</div>'
+            : (!r.title && r.url ? '<div class="hurl">' + esc(r.url) + '</div>' : "");
+  return '<div class="hrow" data-url="' + esc(r.url || "") + '">'
+    + '<span class="htime">' + histFmtTime(r.ts) + '</span>'
+    + (r.platform ? '<span class="hplat">' + esc(r.platform) + '</span>' : "")
+    + '<div class="hmain"><div class="htitle">' + esc(title) + '</div>' + sub + '</div>'
+    + tag
+    + '<div class="hacts">'
+    + '<button class="small" data-act="open">打开原页</button>'
+    + '<button class="small" data-act="copy">复制</button>'
+    + (fail && r.status !== "cancelled" ? '<button class="small" data-act="retry">重试</button>' : "")
+    + '</div></div>';
+}
+async function loadHist(){
+  const body = $("#histBody");
+  if(!body) return;
+  body.innerHTML = '<div class="histgroup">读取中…</div>';
+  let items = [];
+  try{
+    const j = await fetch("/api/history").then(x => x.json());
+    items = j.items || [];
+  }catch(e){}
+  const fails = items.filter(r => r.status !== "done");
+  const oks = items.filter(r => r.status === "done");
+  const cnt = $("#histCount");
+  if(cnt) cnt.textContent = "失败 " + fails.length + " / 成功 " + oks.length;
+  let html = '<div class="histgroup fail">失败 / 取消 · ' + fails.length + '</div>';
+  html += fails.length ? fails.map(histRowHTML).join("")
+                       : '<div class="hrow"><span class="hurl">暂无</span></div>';
+  html += '<div class="histgroup">成功 · ' + oks.length + '</div>';
+  html += oks.length ? oks.map(histRowHTML).join("")
+                     : '<div class="hrow"><span class="hurl">暂无</span></div>';
+  body.innerHTML = html;
+}
+function openHist(){
+  const m = $("#histMask");
+  if(!m) return;
+  m.classList.remove("hidden");
+  loadHist();
+}
+function closeHist(){
+  const m = $("#histMask");
+  if(m) m.classList.add("hidden");
+}
+$("#histClose").onclick = closeHist;
+$("#histRefresh").onclick = loadHist;
+$("#histMask").addEventListener("click", e => { if(e.target === $("#histMask")) closeHist(); });
+$("#histBody").addEventListener("click", async e => {
+  const btn = e.target.closest("button[data-act]");
+  if(!btn) return;
+  const row = btn.closest(".hrow");
+  const url = (row && row.dataset.url) || "";
+  const act = btn.dataset.act;
+  if(act === "copy"){
+    try{ await navigator.clipboard.writeText(url); toast("已复制链接"); }
+    catch(err){ toast("复制失败"); }
+  }else if(act === "open"){
+    if(!url) return;
+    if(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.openURL){
+      window.webkit.messageHandlers.openURL.postMessage({url: url, native: ""});
+    }else{
+      window.location.href = "mediaarchive://open?url=" + encodeURIComponent(url);
+    }
+  }else if(act === "retry"){
+    if(!url) return;
+    try{
+      const j = await fetch("/api/archive", {
+        method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({url: url})
+      }).then(x => x.json());
+      toast(j.ok ? "已重新加入队列" : (j.error || "重试失败"));
+      loadHist();
+    }catch(err){ toast("重试失败"); }
+  }
+});
 document.addEventListener("click", e => {
   // 博主名 → 进入该博主分类
   const al = e.target.closest(".authorlink");
@@ -4524,9 +5227,27 @@ $("#bulkAll").onclick = () => {
 };
 
 $("#bulkCancel").onclick = () => { exitBulkMode(); };
-$("#btnLoadMore").onclick = async () => {
-  const btn = $("#btnLoadMore");
-  btn.disabled = true; btn.textContent = "加载中…";
+
+/* 返回全部：从博主专题回到主页 */
+$("#btnBackHome").onclick = () => {
+  // 侧栏进来的 → 回主页定位到该博主的行；主页行头进来的 → 回原滚动位置
+  if(_entryRoute === "sidebar") _returnAuthorKey = state.author_key || state.author || "";
+  _entryRoute = "";
+  state.author = "";
+  state.author_key = "";
+  state.platform = "";
+  state.collection = null;
+  state.q = "";
+  loadAll();
+};
+
+/* 滚动到底自动加载更多（替代手动按钮） */
+let _loadingMore = false;
+async function loadMoreItems(){
+  if(_loadingMore || !hasMoreItems) return;
+  _loadingMore = true;
+  const box = $("#loadMore");
+  if(box) box.classList.remove("hidden");
   try{
     const more = await fetch("/api/items?" + itemsQuery(itemsCache.length)).then(r => r.json());
     const arr = Array.isArray(more) ? more : [];
@@ -4535,8 +5256,19 @@ $("#btnLoadMore").onclick = async () => {
     renderItems(itemsCache);
     updateLoadMore();
   }catch(e){}
-  btn.disabled = false; btn.textContent = "加载更多";
-};
+  _loadingMore = false;
+  if(!hasMoreItems && box) box.classList.add("hidden");
+}
+// IntersectionObserver：loadMore 元素进入视口时自动触发
+(function(){
+  const sentinel = $("#loadMore");
+  if(!sentinel) return;
+  const mainEl = document.querySelector("main");
+  const io = new IntersectionObserver(entries => {
+    if(entries[0].isIntersecting && hasMoreItems && !_loadingMore) loadMoreItems();
+  }, { root: mainEl, rootMargin: "200px" });
+  io.observe(sentinel);
+})();
 $("#bulkCollect").onclick = () => { if(selected.size) addItemsToCollection([...selected]); };
 $("#bulkUncollect").onclick = () => { if(selected.size) removeItemsFromCollection([...selected]); };
 
@@ -4670,12 +5402,19 @@ document.addEventListener("keydown", e => {
   }catch(e){}
   // 再以后端配置为准
   fetch("/api/config").then(r => r.json()).then(cfg => {
+    window.__maCfg = cfg || {};
     let theme = (cfg && cfg.theme) || "auto";
     if(!["auto","default","deep","graphite","twilight","mint","latte","indigo","coral","glacier","aurora"].includes(theme)) theme = "auto";
     document.documentElement.setAttribute("data-theme", theme);
     try{ localStorage.setItem("ma_theme", theme); }catch(e){}
   }).catch(() => {
     document.documentElement.setAttribute("data-theme", "auto");
+  });
+  // 设置窗口改完配置回到页面时，同步最新配置（上下键开关等）
+  document.addEventListener("visibilitychange", () => {
+    if(document.hidden) return;
+    fetch("/api/config").then(r => r.json())
+      .then(c => { window.__maCfg = c || {}; }).catch(() => {});
   });
 })();
 
@@ -5129,7 +5868,16 @@ $("#batchTabs").addEventListener("click", e => {
       return;
     }
     if (BATCH.tab === "paste") { renderPastePreview(); return; }
-    renderBatch();
+    // 有缓存且有内容 → 直接渲染
+    if (BATCH.items.length) { renderBatch(); batchStatus(); return; }
+    // 有缓存但内容为空：如果后台还在跑就显示读取中，否则重新加载
+    if (BATCH.jobs[BATCH.tab]) {
+      $("#batchGrid").innerHTML = '<div class="bhint" style="grid-column:1/-1;padding:30px 6px">读取中…</div>';
+      batchStatus();
+      return;
+    }
+    // 缓存为空且没在跑 → 重新加载（可能上次返回了空结果）
+    batchLoad(false);
     batchStatus();
     return;
   }
