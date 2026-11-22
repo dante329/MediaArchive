@@ -281,6 +281,20 @@ media-archive/
 
 ---
 
+## Telegram 一次性配置
+
+归档 `t.me/频道/消息号` 走 MTProto（网页预览常被频道关掉，yt-dlp 也取不到），需要一次性配置：
+
+1. App → 设置（`⌘,`）→ **Telegram** 分组：填 `api_id` / `api_hash`（在 [my.telegram.org](https://my.telegram.org) → API development tools 申请），点「保存配置」；
+2. 填手机号（含国家码，如 `+8613800000000`）→「发送验证码并登录」→ 输入 Telegram 里收到的验证码（开了两步验证再输密码）；
+3. 登录成功后会话写入 `~/.media-archive/tg.session`，之后归档 Telegram 链接不再需要登录。
+
+配置落在 `~/.media-archive/tg.json`（`{"api_id": 123456, "api_hash": "..."}`）。MTProto 直连在国内基本不通，会自动复用探测到的本地代理（7897/7890/7891/1087/1080/6152）。
+
+命令行等价操作：`/usr/bin/python3 tg_setup.py`。注销：Telegram App → 设置 → 设备 → 终止该会话，并删掉 `~/.media-archive/tg.session*`。
+
+---
+
 ## 安装
 
 ```bash

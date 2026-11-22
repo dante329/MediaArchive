@@ -63,6 +63,8 @@ FFMPEG = shutil.which("ffmpeg") or "/opt/homebrew/bin/ffmpeg"
 TG_DIR = HOME / ".media-archive"
 TG_CFG = TG_DIR / "tg.json"
 TG_SESSION = TG_DIR / "tg"
+# 命令行配置脚本跟着代码走（install_dir 可能就是仓库本身，别再硬写 ~/bin/media-archive）
+TG_SETUP_SCRIPT = BASE / "tg_setup.py"
 
 def _chrome_version():
     try:
@@ -166,6 +168,20 @@ def detect_proxy():
 
 
 PROXY = detect_proxy()
+
+
+def tg_proxy_arg():
+    """telethon 只认 dict/tuple 形式的代理，把探到的 http://127.0.0.1:7897 转过去；
+    传 URL 字符串会直接 TypeError"""
+    if not PROXY:
+        return None
+    try:
+        u = urllib.parse.urlparse(PROXY)
+        return {"proxy_type": (u.scheme or "http").lower(),
+                "addr": u.hostname or "127.0.0.1",
+                "port": int(u.port or 7897)}
+    except Exception:
+        return None
 
 _shared_opener = None
 
@@ -621,19 +637,25 @@ def parse_telegram(url):
     if not TG_CFG.exists():
         raise RuntimeError(
             "Telegram 需要一次性配置：\n"
-            "  1. 打开 https://my.telegram.org → API development tools → 拿 api_id / api_hash\n"
-            "  2. 写入 %s：{\"api_id\": 123456, \"api_hash\": \"...\"}\n"
-            "  3. 运行 /usr/bin/python3 ~/bin/media-archive/tg_setup.py 完成登录" % TG_CFG)
+            "  推荐：媒体归档 App → 设置（⌘,）→ Telegram → 填 api_id/api_hash → 发送验证码并登录\n"
+            "  或命令行：\n"
+            "    1. 打开 https://my.telegram.org → API development tools → 拿 api_id / api_hash\n"
+            "    2. 写入 %s：{\"api_id\": 123456, \"api_hash\": \"...\"}\n"
+            "    3. 运行 /usr/bin/python3 %s 完成登录" % (TG_CFG, TG_SETUP_SCRIPT))
     try:
         from telethon.sync import TelegramClient
     except ImportError:
         raise RuntimeError("缺少 telethon：/usr/bin/python3 -m pip install --user telethon")
     cfg = json.loads(TG_CFG.read_text("utf-8"))
-    client = TelegramClient(str(TG_SESSION), int(cfg["api_id"]), str(cfg["api_hash"]))
+    # MTProto 直连基本不通，跟其它平台一样走探测到的本地代理
+    client = TelegramClient(str(TG_SESSION), int(cfg["api_id"]), str(cfg["api_hash"]),
+                            proxy=tg_proxy_arg())
     client.connect()
     try:
         if not client.is_user_authorized():
-            raise RuntimeError("Telegram 未登录：运行 /usr/bin/python3 ~/bin/media-archive/tg_setup.py")
+            raise RuntimeError(
+                "Telegram 未登录：App → 设置（⌘,）→ Telegram 里发验证码登录，"
+                "或运行 /usr/bin/python3 %s" % TG_SETUP_SCRIPT)
         ent = client.get_entity(channel)
         msg = client.get_messages(ent, ids=mid)
         if not msg:
@@ -1340,7 +1362,9 @@ def main():
         return 0
     except Exception as e:
         log("失败：%s" % e)
-        notify("归档失败", str(e)[:120])
+        # 之前这里不受「归档失败」开关控制，设置里关了也照样弹；现在和其它通知一致
+        if want_notify("error"):
+            notify("归档失败", str(e)[:120])
         return 1
 
 

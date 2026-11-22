@@ -15,6 +15,10 @@ app/*.bak
 *.tg.json
 tg.json
 config.json
+tg.session
+tg.session*
+*.session
+login_cache.json
 
 # Ollama 模型
 .ollama/

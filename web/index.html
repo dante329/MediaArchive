@@ -281,9 +281,11 @@ main{flex:1 1 auto;min-width:0;min-height:0;height:auto;
 .banner.hidden{display:none}
 .banner button{margin-left:auto}
 
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(228px,1fr));gap:14px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(var(--gw,228px),1fr));gap:14px}
 /* 苹果相册式：按博主分行横滚 */
 .grid.row-mode{display:block}
+/* 缩放条：像苹果相册右下角那样改预览密度（每行几张）；--gw/--rw 由 JS 按 zoom 写进 :root */
+/* 缩放条已移除 */
 .card{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden;
   cursor:pointer;transition:box-shadow .18s ease,border-color .18s ease;box-shadow:var(--shadow);
   position:relative;display:flex;flex-direction:column}
@@ -337,7 +339,7 @@ body.bulkmode .card::after{content:"";position:absolute;inset:0;border-radius:14
   padding-bottom:4px;scroll-snap-type:x proximity;
   -webkit-overflow-scrolling:touch;scrollbar-width:none}
 .author-track::-webkit-scrollbar{display:none}
-.author-track .card{flex:none;width:180px;scroll-snap-align:start;border-radius:12px}
+.author-track .card{flex:none;width:var(--rw,180px);scroll-snap-align:start;border-radius:12px}
 .author-track .card .body{padding:8px 10px 10px}
 .author-track .card .title{font-size:12.5px;min-height:34px}
 .author-track .card .author{display:none}  /* 行头已有博主名，卡片里不重复 */
@@ -564,15 +566,14 @@ body.detail-mode .bulkbar{display:none !important}
 /* 详情页：整页滚动，不受主页面「body 不滚」的约束 */
 body.detail-mode{
   display:block !important;
-  height:auto !important;
-  min-height:100vh !important;
-  overflow-y:auto !important;
-  overflow-x:hidden !important;
+  height:100vh !important;
+  overflow:hidden !important;
   background:var(--bg) !important;
 }
-html:has(body.detail-mode){ background:var(--bg) !important }
-html:has(body.detail-mode){overflow-y:auto !important;height:auto !important}
-#detailRoot{max-width:1180px;margin:0 auto;padding:0 22px 60px}
+html:has(body.detail-mode){ background:var(--bg) !important;height:100vh !important;overflow:hidden !important }
+#detailRoot{max-width:1180px;margin:0 auto;padding:0 22px 60px;
+  height:100vh;overflow-y:auto;overflow-x:hidden;
+  -webkit-overflow-scrolling:touch}
 /* ---------- 自定义视频播放器 ---------- */
 /* 沉浸式播放器：视频铺满视口，两侧用自身模糊副本 */
 .player{position:relative;width:100%;height:100vh;overflow:hidden;
@@ -628,10 +629,11 @@ html:has(body.detail-mode){overflow-y:auto !important;height:auto !important}
 .dactbar{display:flex;justify-content:flex-end;gap:8px;margin-bottom:10px}
 
 /* 媒体分组展示 */
-/* ---------- 图文：Telegram 式气泡网格 ---------- */
-.pgallery{display:flex;flex-direction:column;gap:0;margin:0 -22px 14px}
-.bubble{display:grid;gap:0;overflow:hidden;background:#000}
-.bcell{position:relative;overflow:hidden;cursor:pointer;background:#0a0a0c}
+/* ---------- 图文：苹果相册式扁平网格，缩放改 --dw 控制每行列数 ---------- */
+.pgallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(var(--dw,220px),1fr));
+  gap:4px;margin:0 -22px 14px}
+.bcell{position:relative;overflow:hidden;cursor:pointer;background:#0a0a0c;
+  aspect-ratio:1/1;border-radius:4px}
 .bcell img{width:100%;height:100%;object-fit:cover;display:block;cursor:pointer}
 /* 照片多选：蓝框勾选，跟主页卡片选中一个味道 */
 .bcell.psel{outline:3px solid var(--blue);outline-offset:-3px;border-radius:10px;
@@ -644,24 +646,6 @@ html:has(body.detail-mode){overflow-y:auto !important;height:auto !important}
 .pselbar .pselcount{font-size:13px;font-weight:600;color:var(--blue)}
 .bcell video{width:100%;height:100%;object-fit:cover;display:block}
 .bcell .player{height:100%;border-radius:0}
-
-/* 1 张：整宽，按图比例（上限 78vh） */
-.bubble.n1{grid-template-columns:1fr}
-.bubble.n1 .bcell{max-height:78vh}
-.bubble.n1 .bcell img{object-fit:contain;max-height:78vh}
-
-/* 2 张：左右各半，整体 2:1 */
-.bubble.n2{grid-template-columns:1fr 1fr;aspect-ratio:2/1}
-
-/* 3 张：左大占两行 + 右侧两张 */
-.bubble.n3{grid-template-columns:1.62fr 1fr;grid-template-rows:1fr 1fr;aspect-ratio:1.42/1}
-.bubble.n3 .bcell:first-child{grid-row:span 2}
-
-/* 4 张：2×2 */
-.bubble.n4{grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;aspect-ratio:1.16/1}
-
-/* 5-6 张：上排 3 + 下排 3 */
-.bubble.n5,.bubble.n6{grid-template-columns:repeat(3,1fr);aspect-ratio:1.5/1}
 
 .mediagrid{display:flex;gap:12px;overflow-x:auto;padding-bottom:10px;margin-bottom:16px;
   scrollbar-width:thin}
@@ -1083,6 +1067,9 @@ button.primary:disabled:hover{background:var(--blue);border-color:var(--blue)}
   </main>
 </div>
 
+<!-- 苹果相册式缩放条：改预览密度；触控板捏合 / ⌘+滚轮 / ⌘+ ⌘- ⌘0 同效 -->
+<!-- 缩放条已移除 -->
+
 
 <!-- 解析历史窗口：点信号灯查看最近成功/失败记录 -->
 <div class="histmask hidden" id="histMask">
@@ -1385,6 +1372,117 @@ let _entryRoute = "";      // 进入博主详情的来源：row=主页行头 / s
 })();
 function saveState(){
   try{ sessionStorage.setItem("ma_state", JSON.stringify(state)); }catch(e){}
+}
+
+/* ---------- 刷新后回到原位置：按视图记滚动条，刷新/重启页面后还原 ---------- */
+function viewKey(){
+  if(state.author_key) return "a:" + state.author_key;
+  if(state.author) return "n:" + state.author;
+  if(state.collection) return "c:" + state.collection;
+  if(state.q || state.platform) return "f:" + state.platform + "|" + state.q;
+  return "home";
+}
+let _scrollMem = {};
+try{ _scrollMem = JSON.parse(sessionStorage.getItem("ma_scroll") || "{}") || {}; }catch(e){ _scrollMem = {}; }
+/* 本次加载是不是「刷新/重开」来的：是才还原滚动条，正常点进去的导航不该被拽回旧位置 */
+const _bootRestore = !!sessionStorage.getItem("ma_state");
+let _restoreDone = false;
+let _scrollTimer = 0;
+function rememberScroll(){
+  const m = document.querySelector("main");
+  if(!m) return;
+  _scrollMem[viewKey()] = m.scrollTop;
+  try{ sessionStorage.setItem("ma_scroll", JSON.stringify(_scrollMem)); }catch(e){}
+}
+function restoreScroll(){
+  if(!_bootRestore || _restoreDone) return;
+  const m = document.querySelector("main");
+  if(!m) return;
+  _restoreDone = true;
+  const y = _scrollMem[viewKey()] || 0;
+  const put = () => { if(y > 0) m.scrollTop = y; };
+  requestAnimationFrame(put);
+  setTimeout(put, 300);    // 懒加载图片撑高行高后再校准
+  setTimeout(put, 900);
+}
+
+/* ---------- 缩放系统：主页面改 --gw/--rw，详情页改 --dw，统一 15% 步进 ---------- */
+const ZOOM_STEP = 0.10;
+const ZOOM_MIN = 0.45, ZOOM_MAX = 3.0;
+
+// --- 主页面缩放 ---
+let zoom = 1;
+try{ zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, parseFloat(localStorage.getItem("ma_zoom")) || 1)); }catch(e){}
+zoom = Math.round(zoom / ZOOM_STEP) * ZOOM_STEP;   // 对齐到 15% 网格
+
+function applyZoom(){
+  const rs = document.documentElement.style;
+  rs.setProperty("--gw", Math.round(228 * zoom) + "px");
+  rs.setProperty("--rw", Math.round(180 * zoom) + "px");
+}
+function setZoom(z){
+  z = Math.round(Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z)) / ZOOM_STEP) * ZOOM_STEP;
+  if(z === zoom) return;
+  zoom = z;
+  applyZoom();
+  try{ localStorage.setItem("ma_zoom", String(zoom)); }catch(e){}
+}
+
+// --- 详情页缩放 ---
+let dzoom = 1;
+try{ dzoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, parseFloat(localStorage.getItem("ma_dzoom")) || 1)); }catch(e){}
+dzoom = Math.round(dzoom / ZOOM_STEP) * ZOOM_STEP;
+let _dCells = 0;   // 当前作品的照片数，渲染后写入；用于照片少时限制列数
+
+function applyDZoom(){
+  document.documentElement.style.setProperty("--dw", Math.round(220 * dzoom) + "px");
+}
+
+/* 照片 ≤12 张时算出允许的 zoom 区间 [lo, hi]：
+   - 列数上限 maxCols：强制至少 2 行，照片不会挤成一行小图
+   - 列数下限 minCols=2：不会放大到一行只剩 1-2 张巨图
+   照片 >12 张不限制，完全按记忆值 */
+function _dLimits(){
+  if(!_dCells || _dCells > 12) return null;
+  const root = document.getElementById("detailRoot");
+  const w = ((root && root.clientWidth) || window.innerWidth || 1180) + 4;  // +gap 补偿
+  const minCols = Math.min(2, _dCells);
+  const maxCols = _dCells <= 3 ? _dCells : Math.floor(_dCells / 2);
+  const lo = Math.round(Math.max(ZOOM_MIN, (w / maxCols - 4) / 220) / ZOOM_STEP) * ZOOM_STEP;
+  const hi = Math.round(Math.min(ZOOM_MAX, (w / minCols - 4) / 220) / ZOOM_STEP) * ZOOM_STEP;
+  return [Math.min(lo, hi), Math.max(lo, hi)];
+}
+
+/* 渲染完/窗口尺寸变化后：把当前 zoom 拉回合法区间（不写记忆） */
+function _dSyncClamp(){
+  const lim = _dLimits();
+  if(lim){
+    let z = dzoom;
+    if(z < lim[0]) z = lim[0];
+    if(z > lim[1]) z = lim[1];
+    if(z !== dzoom) dzoom = z;
+  }
+  applyDZoom();
+}
+
+function setDZoom(z){
+  z = Math.round(Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z)) / ZOOM_STEP) * ZOOM_STEP;
+  const lim = _dLimits();
+  let clamped = false;
+  if(lim){
+    if(z < lim[0]){ z = lim[0]; clamped = true; }
+    if(z > lim[1]){ z = lim[1]; clamped = true; }
+  }
+  if(z === dzoom) return;
+  dzoom = z;
+  applyDZoom();
+  // 被 clamp 的值不写记忆，避免污染其他作品的缩放
+  if(!clamped){ try{ localStorage.setItem("ma_dzoom", String(dzoom)); }catch(e){} }
+}
+
+function _inMain(e){
+  const t = e.target;
+  return !!(t && t.closest && t.closest("main"));
 }
 let current = null;
 let selected = new Set();
@@ -2670,6 +2768,7 @@ async function loadAll(){
     }
     _fromRowMode = false;
     _fromSidebar = false;
+    restoreScroll();      // 刷新/重开页面：回到刷新前的滚动位置，不跳顶
     const emptyEl = $("#empty");
     if(emptyEl){
       if(state.active && shown.length === 0){
@@ -2805,6 +2904,7 @@ function renderItemsGrouped(g, items){
       const mainEl = document.querySelector("main");
       _homeScrollTop = mainEl ? mainEl.scrollTop : 0;
       _fromRowMode = true;
+      _restoreDone = true;   // 用户主动点进行头：别再被刷新还原拽回旧位置
       _entryRoute = "row";
       state.author = authorName;
       state.author_key = authorKey;
@@ -3304,6 +3404,7 @@ function renderAuthors(rows){
       const mainEl = document.querySelector("main");
       _homeScrollTop = mainEl ? mainEl.scrollTop : 0;
       _fromSidebar = true;
+      _restoreDone = true;   // 用户主动点侧栏：别再被刷新还原拽回旧位置
       _entryRoute = "sidebar";
       state.active = true; state.author = r.author; state.author_key = key; state.platform = ""; state.collection = null; loadAll();
     };
@@ -3352,6 +3453,36 @@ function addResizers(p){
   });
 }
 
+/* ↑↓ 切换同博主的作品；详情窗口里 itemsCache 是空的，现拉同博主列表。
+   panel 传 null 表示详情窗口模式：直接整页跳到下一条 */
+async function arrowSwitchHandler(it, panel, e){
+  if(e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+  if(window.__maCfg && window.__maCfg.arrow_switch_works === false) return;
+  if(e.target && e.target.matches && e.target.matches("input,textarea,select")) return;
+  const lb = document.getElementById("lightbox");
+  if(lb && lb.classList.contains("on")) return;   // 灯箱开着时方向键归灯箱
+  const ak = it.author_key || it.author_id || it.author || "";
+  if(!ak) return;
+  let siblings = (itemsCache || []).filter(x =>
+    (x.author_key || x.author_id || x.author || "") === ak);
+  if(!siblings.some(x => String(x.id) === String(it.id))){
+    try{
+      const d = await fetch("/api/items?author_key=" + encodeURIComponent(ak) + "&limit=500")
+        .then(r => r.json());
+      siblings = Array.isArray(d) ? d : ((d && d.items) || []);
+    }catch(err){ return; }
+  }
+  if(siblings.length <= 1) return;
+  const idx = siblings.findIndex(x => String(x.id) === String(it.id));
+  if(idx < 0) return;
+  e.preventDefault();
+  const next = e.key === "ArrowDown"
+    ? siblings[(idx + 1) % siblings.length]
+    : siblings[(idx - 1 + siblings.length) % siblings.length];
+  if(panel){ panel.remove(); openItem(next); }
+  else { location.href = "/?detail=" + encodeURIComponent(next.id); }
+}
+
 function openItem(it){
   // 已打开的同一作品 → 置顶
   const exist = [...document.querySelectorAll(".dpanel")].find(p => p.dataset.item === String(it.id));
@@ -3382,6 +3513,7 @@ function openItem(it){
     </div>
     <div class="pbody"></div>`;
   document.body.appendChild(p);
+  p.focus();   // 拿到焦点，↑↓ 切换同博主作品的 keydown 才收得到
 
   const body = p.querySelector(".pbody");
   const meta = renderPanelContent(it, body) || {};
@@ -3453,25 +3585,7 @@ function openItem(it){
 
   // 上下键切换同博主的作品（设置里可关：arrow_switch_works）
   p.tabIndex = -1;
-  p.addEventListener("keydown", e => {
-    if(e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
-    if(window.__maCfg && window.__maCfg.arrow_switch_works === false) return;
-    // 如果焦点在输入框里，不拦截
-    if(e.target.matches("input,textarea,select")) return;
-    e.preventDefault();
-    const ak = it.author_key || it.author_id || it.author || "";
-    const siblings = (itemsCache || []).filter(x =>
-      (x.author_key || x.author_id || x.author || "") === ak);
-    if(siblings.length <= 1) return;
-    const idx = siblings.findIndex(x => String(x.id) === String(it.id));
-    if(idx < 0) return;
-    const next = e.key === "ArrowDown"
-      ? siblings[(idx + 1) % siblings.length]
-      : siblings[(idx - 1 + siblings.length) % siblings.length];
-    // 关闭当前面板，打开下一个
-    p.remove();
-    openItem(next);
-  });
+  p.addEventListener("keydown", e => arrowSwitchHandler(it, p, e));
 
   return p;
 }
@@ -3683,6 +3797,7 @@ function renderPanelContent(it, b){
       const meta = {
         cell,
         img: g.image ? g.image.url : "",
+        thumb: g.image ? thumbURL(g.image) : "",   // 灯箱先用缩略图秒开，原图后台替换
         vid: isLive ? g.video.url : "",     // 非实况时清空 vid，避免误判
         isLive
       };
@@ -3754,15 +3869,8 @@ function renderPanelContent(it, b){
       cell.addEventListener("mouseleave", () => { if(_lpTimer){ clearTimeout(_lpTimer); _lpTimer = null; } });
     });
 
-    // 每 4 张拼一个气泡
-    const PER = 4;
-    for(let i = 0; i < cells.length; i += PER){
-      const chunk = cells.slice(i, i + PER);
-      const bubble = document.createElement("div");
-      bubble.className = "bubble n" + chunk.length;
-      chunk.forEach(c => bubble.appendChild(c.cell));
-      gallery.appendChild(bubble);
-    }
+    // 苹果相册式扁平网格：所有 cell 直接放进 pgallery，缩放改 --dw 控制列数
+    cells.forEach(c => gallery.appendChild(c.cell));
     b.appendChild(gallery);
 
     // ---- 照片多选操作条 ----
@@ -4476,6 +4584,12 @@ function lbPreloadOne(m){
   if(!m || !m.img || lbPreloaded.has(m.img)) return;
   if(lbPreloaded.size > 10) lbPreloaded.clear();
   lbPreloaded.add(m.img);
+  // 预加载也先缓存缩略图（秒开），再后台拉原图
+  if(m.thumb){
+    const th = new Image();
+    th.decoding = "async";
+    th.src = m.thumb;
+  }
   const im = new Image();
   im.decoding = "async";
   im.src = m.img;
@@ -4608,7 +4722,22 @@ function lbRender(meta){
   cur.style.zIndex = "2";
   cur.dataset.idx = String(lbIdx);
   const want = (meta && meta.img) || "";
-  if(cur.getAttribute("src") !== want) cur.src = want;
+  const thumb = (meta && meta.thumb) || "";
+  // 照片多时原图大（5-20MB），先用缩略图秒开，原图后台加载完再无缝替换
+  if(thumb && want){
+    if(cur.getAttribute("src") !== thumb) cur.src = thumb;
+    const token = lbToken;
+    const hi = new Image();
+    hi.onload = () => {
+      if(token !== lbToken) return;   // 已经切到下一张了，丢弃
+      if(cur.dataset.idx === String(lbIdx) && cur.getAttribute("src") !== want){
+        cur.src = want;
+      }
+    };
+    hi.src = want;
+  }else{
+    if(cur.getAttribute("src") !== want) cur.src = want;
+  }
   back.hidden = true;
   back.style.transition = "none";
   back.style.transform = "translateX(0)";
@@ -4675,7 +4804,22 @@ function lbGo(dir, fromDx){
   nxt.onerror = null;
 
   const want = meta.img || "";
-  if(want && nxt.getAttribute("src") !== want) nxt.src = want;
+  const thumb = meta.thumb || "";
+  // 滑动切换也先上缩略图，原图后台替换
+  if(thumb && want){
+    if(nxt.getAttribute("src") !== thumb) nxt.src = thumb;
+    const token = lbToken;
+    const hi = new Image();
+    hi.onload = () => {
+      if(token !== lbToken) return;
+      if(nxt.dataset.idx === String(nextIdx) && nxt.getAttribute("src") !== want){
+        nxt.src = want;
+      }
+    };
+    hi.src = want;
+  }else{
+    if(want && nxt.getAttribute("src") !== want) nxt.src = want;
+  }
 
   lbAnimating = true;
   updateLbChrome();
@@ -4739,7 +4883,22 @@ function openLightbox(slides, index){
   const cur = lbCurImg();
   cur.dataset.idx = String(lbIdx);
   const want = meta.img || "";
-  if(cur.getAttribute("src") !== want) cur.src = want;
+  const thumb = meta.thumb || "";
+  // 先用缩略图秒开，原图后台替换（同 lbRender 逻辑）
+  if(thumb && want){
+    if(cur.getAttribute("src") !== thumb) cur.src = thumb;
+    const token = lbToken;
+    const hi = new Image();
+    hi.onload = () => {
+      if(token !== lbToken) return;
+      if(cur.dataset.idx === String(lbIdx) && cur.getAttribute("src") !== want){
+        cur.src = want;
+      }
+    };
+    hi.src = want;
+  }else{
+    if(cur.getAttribute("src") !== want) cur.src = want;
+  }
   updateLbChrome();
   lbSetLivePill(false);
   if(lbIsLive(meta) && livePref.auto) lbPlayLive(meta);
@@ -5428,18 +5587,79 @@ if(DETAIL_ID){
     document.body.appendChild(root);
     try{
       const it = await fetch("/api/item?id=" + encodeURIComponent(DETAIL_ID)).then(r => r.json());
-      if(it && it.id){ renderPanelContent(it, root); }
+      if(it && it.id){
+        renderPanelContent(it, root);
+        // 记录照片数，把继承来的缩放拉回本作品的合法区间
+        _dCells = root.querySelectorAll(".bcell").length;
+        _dSyncClamp();
+        // 详情窗口也支持 ↑↓ 切换同博主作品
+        root.tabIndex = -1;
+        addEventListener("keydown", e => arrowSwitchHandler(it, null, e));
+      }
       else { root.innerHTML = '<div class="empty">找不到这条记录（可能已被删除）</div>'; }
     }catch(e){
       root.innerHTML = '<div class="empty">加载失败：' + esc(e.message) + '</div>';
     }
   })();
+
+  // 详情窗口缩放初始化
+  requestAnimationFrame(() => { _dSyncClamp(); });
+  setTimeout(() => { _dSyncClamp(); }, 300);
+  // 窗口尺寸变化时重新 clamp
+  addEventListener("resize", () => { _dSyncClamp(); });
+  // 捏合：wheel(ctrlKey)，累积 deltaY 达到阈值才跳一格
+  let _dWheelAcc = 0;
+  addEventListener("wheel", e => {
+    if(!(e.ctrlKey || e.metaKey)) return;
+    e.preventDefault();
+    _dWheelAcc += e.deltaY;
+    if(_dWheelAcc <= -5){
+      const prev = dzoom;
+      setDZoom(dzoom + ZOOM_STEP);
+      _dWheelAcc = (dzoom === prev) ? 0 : _dWheelAcc + 5;
+    }else if(_dWheelAcc >= 5){
+      const prev = dzoom;
+      setDZoom(dzoom - ZOOM_STEP);
+      _dWheelAcc = (dzoom === prev) ? 0 : _dWheelAcc - 5;
+    }
+  }, { passive:false });
+  // 键盘
+  addEventListener("keydown", e => {
+    if(!(e.metaKey || e.ctrlKey)) return;
+    if(e.key === "+" || e.key === "="){ e.preventDefault(); setDZoom(dzoom + ZOOM_STEP); }
+    else if(e.key === "-"){ e.preventDefault(); setDZoom(dzoom - ZOOM_STEP); }
+    else if(e.key === "0"){ e.preventDefault(); setDZoom(1); }
+  });
 }else{
   const qp = new URLSearchParams(location.search);
   if(qp.get("author")) state.author = qp.get("author");
   if(qp.get("platform")) state.platform = qp.get("platform");
   checkHealth(); loadAll(); startPolling();
   setInterval(checkHealth, 15000);
+
+  // 主页面缩放：只允许键盘 ⌘+ ⌘- ⌘0，不允许捏合
+  applyZoom();
+  // 拦截捏合防止 WKWebView 默认页面缩放，但不改 zoom 值
+  addEventListener("wheel", e => {
+    if(!(e.ctrlKey || e.metaKey) || !_inMain(e)) return;
+    e.preventDefault();
+  }, { passive:false });
+  // 键盘
+  addEventListener("keydown", e => {
+    if(!(e.metaKey || e.ctrlKey)) return;
+    if(e.key === "+" || e.key === "="){ e.preventDefault(); setZoom(zoom + ZOOM_STEP); }
+    else if(e.key === "-"){ e.preventDefault(); setZoom(zoom - ZOOM_STEP); }
+    else if(e.key === "0"){ e.preventDefault(); setZoom(1); }
+  });
+
+  // 滚动位置记忆：刷新/重开后还原（见 restoreScroll）
+  const _mainForScroll = document.querySelector("main");
+  if(_mainForScroll){
+    _mainForScroll.addEventListener("scroll", () => {
+      clearTimeout(_scrollTimer);
+      _scrollTimer = setTimeout(rememberScroll, 120);
+    }, { passive:true });
+  }
   // 预热登录态：进 App 就先问一次，开批量归档时直接秒显示「已登录·昵称」
   ["douyin", "xhs"].forEach(p => {
     fetch("/api/source/status?platform=" + p).then(x => x.json())

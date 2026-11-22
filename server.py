@@ -6,9 +6,11 @@
     python3 server.py --port 9000
 """
 import errno
+import asyncio
 import json
 import mimetypes
 import os
+import queue
 import re
 import shutil
 import sqlite3
@@ -1617,6 +1619,341 @@ def login_worker(platform):
         QUEUE_PAUSED.clear()
 
 
+# ---------------------------------------------------------------- Telegram 一次性配置
+# 归档 t.me 链接走 MTProto，需要 api_id/api_hash（~/.media-archive/tg.json）+ 登录会话
+# （~/.media-archive/tg.session）。以前只能跑 tg_setup.py，这里把整套流程搬到 App 设置里。
+TG_DIR = HOME / ".media-archive"
+TG_CFG = TG_DIR / "tg.json"
+TG_SESSION = TG_DIR / "tg"
+TG_SETUP = BASE / "tg_setup.py"
+# 登录状态机：idle → connecting → sending_code → waiting_code → (waiting_password) → done / error
+TG_LOGIN = {"state": "idle", "message": "", "phone": "", "needs_password": False,
+            "user": "", "error": "", "started": 0, "cancel": False}
+TG_LOGIN_LOCK = threading.Lock()
+TG_INPUT = queue.Queue()          # App 提交的验证码 / 两步密码 / 取消
+TG_LIVE = {"checking": False, "checked_at": 0, "authorized": None, "user": "", "error": ""}
+TG_LIVE_LOCK = threading.Lock()
+_TELETHON_VER = None
+
+
+def _tg_set(**kw):
+    with TG_LOGIN_LOCK:
+        TG_LOGIN.update(kw)
+
+
+def _tg_get(key, default=None):
+    with TG_LOGIN_LOCK:
+        return TG_LOGIN.get(key, default)
+
+
+def _tg_live_set(**kw):
+    with TG_LIVE_LOCK:
+        TG_LIVE.update(kw)
+
+
+def telethon_version():
+    """探测 telethon 是否装了（结果缓存，避免每次状态查询都导入一遍）"""
+    global _TELETHON_VER
+    if _TELETHON_VER is None:
+        try:
+            import telethon
+            _TELETHON_VER = getattr(telethon, "__version__", "installed") or "installed"
+        except ImportError:
+            _TELETHON_VER = ""
+    return _TELETHON_VER
+
+
+def _tg_own_loop():
+    """telethon 的 sync 客户端用的是「当前线程的 event loop」，工作线程里默认没有，
+    必须自己建一个（tg_setup.py 跑在主线程，所以命令行一直没暴露这个问题）"""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    return loop
+
+
+def _tg_close_loop(loop):
+    try:
+        asyncio.set_event_loop(None)
+    except Exception:
+        pass
+    try:
+        if loop is not None and not loop.is_closed():
+            loop.close()
+    except Exception:
+        pass
+
+
+def tg_proxy():
+    """MTProto 直连在国内基本连不通，复用 engine 的本地代理探测结果（7897/7890/…）"""
+    try:
+        import engine
+        return engine.PROXY or None
+    except Exception:
+        return None
+
+
+def tg_proxy_arg():
+    """telethon 只认 dict/tuple 代理，用 engine 里那个转换（URL 字符串会 TypeError）"""
+    try:
+        import engine
+        return engine.tg_proxy_arg()
+    except Exception:
+        return None
+
+
+def tg_client():
+    """按 tg.json 建一个 telethon 客户端（带代理，直连 MTProto 在国内基本连不通）"""
+    from telethon.sync import TelegramClient
+    cfg = tg_cfg_load()
+    aid = int(cfg.get("api_id") or _TG_DEFAULT_API_ID)
+    ahash = str(cfg.get("api_hash") or _TG_DEFAULT_API_HASH)
+    return TelegramClient(str(TG_SESSION), aid, ahash,
+                          proxy=tg_proxy_arg(), timeout=12,
+                          connection_retries=2, request_retries=2)
+
+
+def tg_cfg_load():
+    try:
+        d = json.loads(TG_CFG.read_text("utf-8"))
+        return d if isinstance(d, dict) else {}
+    except Exception:
+        return {}
+
+
+# 内置默认 api_id/api_hash（Telegram 官方允许第三方客户端使用）
+# 用户不需要自己去 my.telegram.org 申请，直接输手机号+验证码就行
+_TG_DEFAULT_API_ID = 2040
+_TG_DEFAULT_API_HASH = "b18441a1ff607e10a989891a5462e627"
+
+
+def tg_cfg_save(api_id, api_hash):
+    """校验并写入 tg.json；返回错误文案（None 表示成功）"""
+    api_id = str(api_id or "").strip()
+    api_hash = str(api_hash or "").strip()
+    # 允许留空——留空时用内置默认值
+    if api_id and not api_id.isdigit():
+        return "api_id 要是纯数字（在 https://my.telegram.org → API development tools 拿）"
+    if api_hash and len(api_hash) < 20:
+        return "api_hash 长度不对（应该是 32 位十六进制字符串）"
+    old = tg_cfg_load()
+    merged = dict(old)
+    if api_id:
+        merged["api_id"] = int(api_id)
+    if api_hash:
+        merged["api_hash"] = api_hash
+    TG_DIR.mkdir(parents=True, exist_ok=True)
+    tmp = TG_CFG.with_suffix(".tmp")
+    tmp.write_text(json.dumps(merged, ensure_ascii=False, indent=2), "utf-8")
+    tmp.replace(TG_CFG)
+    os.chmod(str(TG_CFG), 0o600)
+    return None
+
+
+def tg_session_files():
+    try:
+        return sorted(p.name for p in TG_DIR.glob("tg.session*"))
+    except Exception:
+        return []
+
+
+def tg_status_public():
+    """文件态 + 登录流程态 + 上一次实测结果，一次给全，App 直接渲染"""
+    with TG_LOGIN_LOCK:
+        login = dict(TG_LOGIN)
+    with TG_LIVE_LOCK:
+        live = dict(TG_LIVE)
+    cfg = tg_cfg_load()
+    api_id = str(cfg.get("api_id") or "")
+    api_hash = str(cfg.get("api_hash") or "")
+    sessions = tg_session_files()
+    # 有内置默认值，即使没填也算 configured
+    has_creds = bool((api_id and api_hash) or (not api_id and not api_hash))
+    return {
+        "configured": True,   # 始终 True，因为有内置默认值
+        "has_custom_creds": bool(api_id and api_hash),
+        "api_id": api_id,
+        "api_hash": api_hash,          # 只监听 127.0.0.1，App 打开设置时要回填
+        "api_hash_masked": (api_hash[:4] + "…" + api_hash[-4:]) if len(api_hash) > 8 else api_hash,
+        "session_exists": bool(sessions),
+        "session_files": sessions,
+        "telethon": telethon_version(),
+        "proxy": tg_proxy() or "",
+        "cfg_path": str(TG_CFG),
+        "session_path": str(TG_SESSION) + ".session",
+        "setup_script": str(TG_SETUP) if TG_SETUP.exists() else "",
+        "login": login,
+        "live": live,
+    }
+
+
+def tg_verify_worker():
+    """拿现有 session 真连一次，确认登录态还有效（App 打开设置时后台跑）"""
+    client = None
+    loop = None
+    try:
+        cfg = tg_cfg_load()
+        # 有内置默认值，不再要求用户必须填 api_id/api_hash
+        if not telethon_version():
+            _tg_live_set(authorized=False, user="", checked_at=time.time(),
+                         error="缺少 telethon")
+            return
+        loop = _tg_own_loop()
+        client = tg_client()
+        client.connect()
+        if client.is_user_authorized():
+            me = client.get_me()
+            name = " ".join(x for x in [getattr(me, "first_name", "") or "",
+                                        getattr(me, "last_name", "") or ""] if x).strip()
+            uname = getattr(me, "username", "") or ""
+            _tg_live_set(authorized=True, checked_at=time.time(), error="",
+                         user=("%s（@%s）" % (name, uname)) if uname else (name or "已登录"))
+        else:
+            _tg_live_set(authorized=False, user="", checked_at=time.time(),
+                         error="配置在，但会话没登录（或已失效）")
+    except Exception as e:
+        _tg_live_set(authorized=False, user="", checked_at=time.time(), error=str(e)[:200])
+    finally:
+        _tg_live_set(checking=False)
+        try:
+            if client:
+                client.disconnect()
+        except Exception:
+            pass
+        _tg_close_loop(loop)
+
+
+def tg_login_worker(phone):
+    """整个登录流程都待在这一个线程里：telethon 的 sync 客户端绑定创建它的线程，
+    而且 send_code_request 拿到的 phone_code_hash 只存在内存里，换进程/换线程就接不上。"""
+    client = None
+    loop = None
+    try:
+        from telethon import errors as tg_errors
+        cfg = tg_cfg_load()
+        # api_id/api_hash 留空时用内置默认值，不再报错
+        px = tg_proxy()
+        _tg_set(state="connecting",
+                message=("连接 Telegram…（代理 %s）" % px) if px else "连接 Telegram…（直连）",
+                phone=phone, needs_password=False, user="", error="", started=time.time())
+        loop = _tg_own_loop()
+        client = tg_client()
+        try:
+            client.connect()
+        except Exception as ce:
+            raise RuntimeError("连不上 Telegram：%s%s" % (
+                str(ce)[:120],
+                "" if px else "（没探到本地代理，MTProto 直连大概率不通：先开代理再试）"))
+        if client.is_user_authorized():
+            me = client.get_me()
+            _tg_set(state="done", message="这个会话本来就是登录状态",
+                    user=getattr(me, "username", "") or str(getattr(me, "id", "")))
+            _tg_live_set(authorized=True, user=_tg_get("user") or "已登录",
+                         checked_at=time.time(), error="")
+            return
+
+        _tg_set(state="sending_code", message="正在发送验证码到 %s…" % phone)
+        sent = client.send_code_request(phone)
+        via = ""
+        try:
+            via = type(sent.type).__name__.replace("SentCodeType", "").lower()
+        except Exception:
+            pass
+        hint = {"sms": "短信", "call": "电话", "flash_call": "来电尾号",
+                "fragment_sms": "Fragment"}.get(via, "Telegram 站内")
+        _tg_set(state="waiting_code",
+                message="验证码已通过%s发出，去 Telegram 里看（10 分钟内有效）" % hint)
+
+        deadline = time.time() + 600
+        while True:
+            if _tg_get("cancel"):
+                raise RuntimeError("已取消登录")
+            timeout = max(1.0, deadline - time.time())
+            try:
+                item = TG_INPUT.get(timeout=min(timeout, 1.0))
+            except queue.Empty:
+                if time.time() > deadline:
+                    raise RuntimeError("10 分钟没输验证码，登录超时")
+                continue
+            kind = item.get("kind")
+            if kind == "cancel":
+                raise RuntimeError("已取消登录")
+            if kind == "resend":
+                _tg_set(state="sending_code", message="重新发送验证码…")
+                client.send_code_request(phone)
+                deadline = time.time() + 600
+                _tg_set(state="waiting_code", message="验证码已重新发送")
+                continue
+            code = str(item.get("code") or "").strip()
+            pwd = str(item.get("password") or "").strip()
+            if not code and not pwd:
+                _tg_set(message="验证码不能为空")
+                continue
+            try:
+                if code:
+                    client.sign_in(phone=phone, code=code)
+                else:
+                    client.sign_in(password=pwd)
+                break
+            except tg_errors.SessionPasswordNeededError:
+                if not pwd:
+                    _tg_set(state="waiting_password", needs_password=True,
+                            message="这个号开了两步验证，再输入一次密码")
+                    continue
+                try:
+                    client.sign_in(password=pwd)
+                    break
+                except tg_errors.PasswordHashInvalidError:
+                    _tg_set(state="waiting_password", needs_password=True,
+                            message="两步验证密码不对，重新输入")
+                    continue
+            except tg_errors.PhoneCodeInvalidError:
+                _tg_set(state="waiting_code", message="验证码不对，重新输入")
+                continue
+            except tg_errors.PhoneCodeExpiredError:
+                raise RuntimeError("验证码过期了，点「重新发送」再来一次")
+            except tg_errors.FloodWaitError as e:
+                raise RuntimeError("触发 Telegram 限流，%d 秒后再试" % getattr(e, "seconds", 60))
+
+        me = client.get_me()
+        name = " ".join(x for x in [getattr(me, "first_name", "") or "",
+                                    getattr(me, "last_name", "") or ""] if x).strip()
+        uname = getattr(me, "username", "") or ""
+        shown = ("%s（@%s）" % (name, uname)) if uname else (name or str(getattr(me, "id", "")))
+        _tg_set(state="done", message="登录成功，会话已保存到 %s.session" % TG_SESSION,
+                user=shown, needs_password=False)
+        _tg_live_set(authorized=True, user=shown, checked_at=time.time(), error="")
+    except Exception as e:
+        cancelled = bool(_tg_get("cancel")) or "已取消" in str(e)
+        _tg_set(state=("cancelled" if cancelled else "error"),
+                message=("已取消登录" if cancelled else str(e)[:200]),
+                error=("" if cancelled else str(e)[:200]), needs_password=False)
+    finally:
+        try:
+            if client:
+                client.disconnect()
+        except Exception:
+            pass
+        _tg_close_loop(loop)
+
+
+def tg_login_busy():
+    return _tg_get("state") in ("connecting", "sending_code", "waiting_code", "waiting_password")
+
+
+def tg_logout():
+    """删掉本地会话文件；账号侧的会话要自己去 Telegram → 设置 → 设备里终止"""
+    removed = []
+    for p in TG_DIR.glob("tg.session*"):
+        try:
+            p.unlink()
+            removed.append(p.name)
+        except Exception:
+            pass
+    _tg_set(state="idle", message="", phone="", needs_password=False, user="", error="")
+    _tg_live_set(authorized=False, user="", checked_at=time.time(), error="")
+    return removed
+
+
 LOGIN_CACHE_FILE = HOME / ".media-archive" / "login_cache.json"
 _LOGIN_CACHE_LOCK = threading.Lock()
 
@@ -2046,6 +2383,18 @@ class Handler(BaseHTTPRequestHandler):
                     "livephoto": c.get("livephoto") or {},
                     "arrow_switch_works": bool(c.get("arrow_switch_works", True)),
                 })
+
+            if u.path == "/api/tg/status":
+                # ?live=1 时后台真连一次 Telegram 验证会话（不阻塞这次响应）
+                want_live = (urllib.parse.parse_qs(u.query).get("live", ["0"])[0] == "1")
+                if want_live:
+                    with TG_LIVE_LOCK:
+                        checking = TG_LIVE.get("checking")
+                        stale = (time.time() - (TG_LIVE.get("checked_at") or 0)) > 30
+                    if not checking and stale and not tg_login_busy():
+                        _tg_live_set(checking=True)
+                        threading.Thread(target=tg_verify_worker, daemon=True).start()
+                return self._json({"ok": True, "tg": tg_status_public()})
 
             if u.path == "/api/suggest":
                 ql = (urllib.parse.parse_qs(u.query).get("q", [""])[0] or "").strip().lower()
@@ -3267,6 +3616,70 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"ok": True, "file": out.name,
                                    "path": str(out),
                                    "size": out.stat().st_size})
+            # ---------------- Telegram 一次性配置 / 登录 ----------------
+            if u.path == "/api/tg/config":
+                err = tg_cfg_save(body.get("api_id"), body.get("api_hash"))
+                if err:
+                    return self._json({"ok": False, "error": err}, 400)
+                _tg_live_set(checked_at=0, authorized=None, user="", error="")   # 配置变了，重测
+                return self._json({"ok": True, "message": "已写入 %s" % TG_CFG,
+                                   "tg": tg_status_public()})
+
+            if u.path == "/api/tg/send_code":
+                phone = re.sub(r"[^\d+]", "", str(body.get("phone") or ""))
+                if not phone.startswith("+"):
+                    phone = "+" + phone.lstrip("+")
+                if len(re.sub(r"\D", "", phone)) < 8:
+                    return self._json({"ok": False, "error": "手机号要含国家码，例如 +8613800000000"}, 400)
+                if body.get("api_id") or body.get("api_hash"):
+                    err = tg_cfg_save(body.get("api_id") or tg_cfg_load().get("api_id"),
+                                      body.get("api_hash") or tg_cfg_load().get("api_hash"))
+                    if err:
+                        return self._json({"ok": False, "error": err}, 400)
+                cfg = tg_cfg_load()
+                # api_id/api_hash 留空用内置默认值，不再拦截
+                if not telethon_version():
+                    return self._json({"ok": False, "error":
+                                       "缺少 telethon：/usr/bin/python3 -m pip install --user telethon"}, 400)
+                if tg_login_busy():
+                    return self._json({"ok": False, "error": "登录进行中",
+                                       "tg": tg_status_public()})
+                while not TG_INPUT.empty():          # 清掉上一轮残留的输入
+                    try:
+                        TG_INPUT.get_nowait()
+                    except queue.Empty:
+                        break
+                _tg_set(state="connecting", message="准备登录…", phone=phone, cancel=False,
+                        needs_password=False, user="", error="")
+                threading.Thread(target=tg_login_worker, args=(phone,), daemon=True).start()
+                return self._json({"ok": True, "tg": tg_status_public()})
+
+            if u.path == "/api/tg/code":
+                if not tg_login_busy():
+                    return self._json({"ok": False, "error": "当前没有进行中的登录",
+                                       "tg": tg_status_public()})
+                if body.get("resend"):
+                    TG_INPUT.put({"kind": "resend"})
+                else:
+                    TG_INPUT.put({"kind": "submit",
+                                  "code": str(body.get("code") or "").strip(),
+                                  "password": str(body.get("password") or "")})
+                return self._json({"ok": True, "tg": tg_status_public()})
+
+            if u.path == "/api/tg/cancel":
+                _tg_set(cancel=True)
+                TG_INPUT.put({"kind": "cancel"})
+                return self._json({"ok": True, "tg": tg_status_public()})
+
+            if u.path == "/api/tg/logout":
+                _tg_set(cancel=True)
+                TG_INPUT.put({"kind": "cancel"})
+                removed = tg_logout()
+                return self._json({"ok": True, "removed": removed,
+                                   "message": ("已删除本地会话：%s" % ", ".join(removed)) if removed
+                                   else "本地没有会话文件。账号侧的会话去 Telegram → 设置 → 设备 里终止",
+                                   "tg": tg_status_public()})
+
             if u.path == "/api/source/login":
                 platform = (body.get("platform") or "").strip()
                 if platform not in ("douyin", "xhs"):

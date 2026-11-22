@@ -2,12 +2,15 @@
 # -*- coding: utf-8 -*-
 """Telegram 一次性配置 + 登录（MTProto，用于下载频道里的视频/图片）
 
+推荐入口：媒体归档 App → 设置（⌘,）→ Telegram 分组（填 api_id/api_hash → 发验证码登录）。
+本脚本是等价的命令行版本，适合无界面环境。
+
 准备：
   1. 浏览器打开 https://my.telegram.org → 用手机号登录
   2. 进 "API development tools"，填个应用名，拿到 api_id 和 api_hash
 
 然后运行：
-  /usr/bin/python3 ~/bin/media-archive/tg_setup.py
+  /usr/bin/python3 <install_dir>/tg_setup.py
 
 会依次问：api_id、api_hash、手机号（+86…）、Telegram 里收到的验证码（有两步验证再输密码）。
 登录成功后 session 存到 ~/.media-archive/tg.session，之后归档 Telegram 链接就不需要再登录。
@@ -42,9 +45,11 @@ def main():
     TG_DIR.mkdir(parents=True, exist_ok=True)
     cfg = load_cfg()
     print("=== Telegram 配置 ===")
-    print("没有 api_id/api_hash？去 https://my.telegram.org → API development tools 拿\n")
-    api_id = cfg.get("api_id") or input("api_id（纯数字）: ").strip()
-    api_hash = cfg.get("api_hash") or input("api_hash: ").strip()
+    print("api_id/api_hash 已内置默认值，直接回车跳过即可\n")
+    _DEFAULT_API_ID = 2040
+    _DEFAULT_API_HASH = "b18441a1ff607e10a989891a5462e627"
+    api_id = cfg.get("api_id") or input("api_id（纯数字，留空用默认）: ").strip() or str(_DEFAULT_API_ID)
+    api_hash = cfg.get("api_hash") or input("api_hash（留空用默认）: ").strip() or _DEFAULT_API_HASH
     if not str(api_id).isdigit() or len(str(api_hash)) < 20:
         print("api_id / api_hash 格式不对，退出")
         return 1
@@ -53,7 +58,15 @@ def main():
     print("已写入 %s" % CFG)
 
     print("\n=== 登录（首次会要验证码）===")
-    client = TelegramClient(str(SESSION), int(api_id), api_hash)
+    # MTProto 直连在国内基本不通，复用 engine 的本地代理探测（没有就直连）
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from engine import PROXY, tg_proxy_arg
+        proxy = tg_proxy_arg()
+    except Exception:
+        PROXY, proxy = None, None
+    print("代理：%s" % (PROXY or "无（直连）"))
+    client = TelegramClient(str(SESSION), int(api_id), api_hash, proxy=proxy)
     client.connect()
     if client.is_user_authorized():
         me = client.get_me()

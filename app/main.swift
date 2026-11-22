@@ -188,6 +188,7 @@ struct FlowLayout: Layout {
 
 struct SettingsView: View {
     @ObservedObject var model: SettingsModel
+    @ObservedObject var tg: TelegramSetup
     var onPick: () -> Void
     var onOpenDir: () -> Void
     var onRecord: () -> Void
@@ -278,9 +279,111 @@ struct SettingsView: View {
                 }
 
                 group("下载引擎") {
-                    Toggle("允许 yt-dlp 使用本机 Chrome 登录态", isOn: $model.ytdlpBrowserCookies)
-                    Text("开启后，yt-dlp 会读取你日常 Chrome 的登录状态（--cookies-from-browser chrome），用于下载需要登录的第三方站点；默认关闭。")
+                    Toggle("海外站点用 Chrome 登录态下载", isOn: $model.ytdlpBrowserCookies)
+                    Text("仅对 YouTube / X / Instagram 等需要登录的海外站点生效（--cookies-from-browser chrome）。抖音、小红书、B站等国内平台不受影响。")
                         .font(.caption).foregroundColor(.secondary)
+                }
+
+                group("Telegram") {
+                    HStack(spacing: 6) {
+                        Circle().fill(tg.statusColor).frame(width: 8, height: 8)
+                        Text(tg.statusText)
+                            .font(.caption).foregroundColor(.secondary)
+                            .lineLimit(1).truncationMode(.tail)
+                        Spacer()
+                        Button("重新检测") { tg.refresh(live: true) }
+                            .controlSize(.small)
+                            .disabled(tg.pending || tg.busy)
+                    }
+                    Text("归档 t.me 帖子只需登录一次：输入手机号 → 收验证码 → 完成。api_id/api_hash 已内置默认值，不用自己申请。")
+                        .font(.caption).foregroundColor(.secondary)
+                    if tg.telethon.isEmpty {
+                        Text("缺少 telethon，终端里先跑：/usr/bin/python3 -m pip install --user telethon")
+                            .font(.caption).foregroundColor(.orange)
+                    }
+
+                    // api_id/api_hash 折叠在高级选项里，默认不显示
+                    DisclosureGroup("高级：自定义 api_id / api_hash") {
+                        tgField("api_id", $tg.apiId, placeholder: "留空用默认值", enabled: !tg.busy)
+                        tgField("api_hash", $tg.apiHash, placeholder: "留空用默认值", enabled: !tg.busy)
+                        HStack(spacing: 8) {
+                            Button("保存配置") { tg.saveConfig() }
+                                .controlSize(.small)
+                                .disabled(tg.pending || tg.busy)
+                            Button("去 my.telegram.org 申请") {
+                                if let u = URL(string: "https://my.telegram.org/apps") {
+                                    NSWorkspace.shared.open(u)
+                                }
+                            }
+                            .controlSize(.small)
+                            Spacer()
+                        }
+                    }
+                    .font(.caption)
+
+                    if tg.loggedIn && !tg.busy {
+                        HStack(spacing: 8) {
+                            Text(tg.user.isEmpty ? "已登录" : "已登录：\(tg.user)")
+                                .font(.caption).foregroundColor(.secondary)
+                                .lineLimit(1).truncationMode(.middle)
+                            Spacer()
+                            Button("退出登录") { tg.logout() }
+                                .controlSize(.small)
+                                .disabled(tg.pending)
+                        }
+                    } else if tg.waitingPassword {
+                        tgField("两步密码", $tg.password, placeholder: "开了两步验证才要",
+                                secure: true, enabled: !tg.pending)
+                        HStack(spacing: 8) {
+                            Button("提交密码") { tg.submit() }
+                                .controlSize(.small)
+                                .keyboardShortcut(.defaultAction)
+                                .disabled(tg.pending || tg.password.isEmpty)
+                            Button("取消") { tg.cancelFlow() }
+                                .controlSize(.small)
+                                .disabled(tg.pending)
+                            Spacer()
+                        }
+                    } else if tg.waitingCode {
+                        tgField("验证码", $tg.code, placeholder: "Telegram 里收到的验证码",
+                                enabled: !tg.pending)
+                        HStack(spacing: 8) {
+                            Button("登录") { tg.submit() }
+                                .controlSize(.small)
+                                .keyboardShortcut(.defaultAction)
+                                .disabled(tg.pending || tg.code.isEmpty)
+                            Button("重新发送") { tg.resend() }
+                                .controlSize(.small)
+                                .disabled(tg.pending)
+                            Button("取消") { tg.cancelFlow() }
+                                .controlSize(.small)
+                                .disabled(tg.pending)
+                            Spacer()
+                        }
+                    } else {
+                        tgField("手机号", $tg.phone, placeholder: "含国家码，如 +8613800000000",
+                                enabled: !tg.busy)
+                        HStack(spacing: 8) {
+                            Button("发送验证码并登录") { tg.sendCode() }
+                                .controlSize(.small)
+                                .disabled(tg.pending || tg.busy
+                                          || tg.phone.trimmingCharacters(in: .whitespaces).count < 8)
+                            Spacer()
+                        }
+                    }
+
+                    if !tg.message.isEmpty {
+                        Text(tg.message)
+                            .font(.caption)
+                            .foregroundColor(tg.flowState == "error" ? .red : .secondary)
+                    }
+                    if !tg.notice.isEmpty {
+                        Text(tg.notice)
+                            .font(.caption)
+                            .foregroundColor(tg.noticeBad ? .red : .secondary)
+                    } else if !tg.liveError.isEmpty && !tg.loggedIn {
+                        Text(tg.liveError).font(.caption).foregroundColor(.secondary)
+                    }
                 }
 
                 group("浏览") {
@@ -291,7 +394,7 @@ struct SettingsView: View {
 
                 group("实况图保存方式") {
                     Picker("", selection: $model.livephotoMode) {
-                        Text("图片 + 视频").tag("both")
+                        Text("实况（图片 + 视频）").tag("both")
                         Text("只保存图片").tag("image")
                         Text("只保存视频").tag("video")
                     }
@@ -347,6 +450,27 @@ struct SettingsView: View {
             .toggleStyle(.checkbox)
             .font(.system(size: 12))
             .frame(width: 132, alignment: .leading)
+    }
+
+    /// Telegram 分组里的输入行：左边固定宽度标签，右边输入框
+    @ViewBuilder
+    private func tgField(_ label: String, _ text: Binding<String>, placeholder: String = "",
+                         secure: Bool = false, enabled: Bool = true) -> some View {
+        HStack(spacing: 10) {
+            Text(label)
+                .frame(width: 68, alignment: .leading)
+                .font(.caption).foregroundColor(.secondary)
+            Group {
+                if secure {
+                    SecureField(placeholder, text: text)
+                } else {
+                    TextField(placeholder, text: text)
+                }
+            }
+            .textFieldStyle(.roundedBorder)
+            .font(.system(size: 12, design: .monospaced))
+            .disabled(!enabled)
+        }
     }
 
     @ViewBuilder
@@ -865,6 +989,7 @@ final class DetailWindows: NSObject, WKScriptMessageHandler {
         ucc.add(DetailWindows.shared, name: "filterAuthor")
         cfg.userContentController = ucc
         let web = WKWebView(frame: w.contentView!.bounds, configuration: cfg)
+        // 不禁用 allowsMagnification（会导致滚动也失效），改为在 Web JS 里拦截捏合
         web.autoresizingMask = [.width, .height]
         // NOTE: drawsBackground is a private KVC key; no public API alternative exists on all macOS versions.
         // This may cause App Store rejection if submitted. For direct distribution it is safe.
@@ -930,6 +1055,247 @@ enum API {
             if let d = d { out = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] }
             DispatchQueue.main.async { cb?(out) }
         }.resume()
+    }
+    /// 和 post 一样，但 4xx 也把响应体交回来——配置类接口要靠它显示具体错误
+    static func postRaw(_ path: String, _ body: [String: Any],
+                        _ cb: @escaping ([String: Any]?) -> Void) {
+        guard let u = URL(string: base + path) else { cb(nil); return }
+        var req = URLRequest(url: u)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.timeoutInterval = 25
+        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        URLSession.shared.dataTask(with: req) { d, _, _ in
+            var out: [String: Any]? = nil
+            if let d = d { out = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] }
+            DispatchQueue.main.async { cb(out) }
+        }.resume()
+    }
+}
+
+// MARK: - Telegram 一次性配置
+/// 设置窗口里的 Telegram 分组：填 api_id/api_hash → 发验证码 → 登录，
+/// 全程打 server.py 的 /api/tg/*，结果落到 ~/.media-archive/tg.json + tg.session。
+final class TelegramSetup: ObservableObject {
+    @Published var apiId = ""
+    @Published var apiHash = ""
+    @Published var phone = ""
+    @Published var code = ""
+    @Published var password = ""
+    @Published var configured = false
+    @Published var sessionExists = false
+    @Published var loggedIn = false
+    @Published var user = ""
+    @Published var flowState = "idle"
+    @Published var message = ""
+    @Published var needsPassword = false
+    @Published var telethon = ""
+    @Published var cfgPath = ""
+    @Published var liveError = ""
+    @Published var checking = false
+    @Published var notice = ""
+    @Published var noticeBad = false
+    @Published var pending = false
+    private var poll: Timer?
+    private var prefilled = false
+
+    static let busyStates = ["connecting", "sending_code", "waiting_code", "waiting_password"]
+
+    var busy: Bool { TelegramSetup.busyStates.contains(flowState) }
+    var waitingCode: Bool { flowState == "waiting_code" }
+    var waitingPassword: Bool { flowState == "waiting_password" }
+
+    var statusText: String {
+        switch flowState {
+        case "connecting": return "连接 Telegram…"
+        case "sending_code": return "正在发送验证码…"
+        case "waiting_code": return "等验证码"
+        case "waiting_password": return "等两步验证密码"
+        case "done": return loggedIn || !user.isEmpty ? "已登录 · \(user)" : "登录成功"
+        case "cancelled": return "已取消"
+        case "error": return "登录失败"
+        default: break
+        }
+        if checking { return "正在检测登录态…" }
+        if loggedIn { return user.isEmpty ? "已登录" : "已登录 · \(user)" }
+        if !configured { return "未配置" }
+        if sessionExists { return "已配置 · 会话未通过验证，需要重新登录" }
+        return "已配置 · 未登录"
+    }
+
+    var statusColor: Color {
+        if flowState == "error" { return .red }
+        if loggedIn || flowState == "done" { return .green }
+        if busy || checking { return .orange }
+        return configured ? .orange : .secondary
+    }
+
+    /// 把服务端状态铺到界面上
+    func apply(_ dict: [String: Any]?) {
+        guard let tg = dict?["tg"] as? [String: Any] else { return }
+        configured = (tg["configured"] as? Bool) ?? configured
+        sessionExists = (tg["session_exists"] as? Bool) ?? sessionExists
+        telethon = (tg["telethon"] as? String) ?? telethon
+        if let p = tg["cfg_path"] as? String, !p.isEmpty { cfgPath = p }
+        if !prefilled {
+            apiId = (tg["api_id"] as? String) ?? ""
+            apiHash = (tg["api_hash"] as? String) ?? ""
+            prefilled = true
+        }
+        if let login = tg["login"] as? [String: Any] {
+            flowState = (login["state"] as? String) ?? "idle"
+            message = (login["message"] as? String) ?? ""
+            needsPassword = (login["needs_password"] as? Bool) ?? false
+            if let u = login["user"] as? String, !u.isEmpty { user = u }
+        }
+        if let live = tg["live"] as? [String: Any] {
+            checking = (live["checking"] as? Bool) ?? false
+            if let auth = live["authorized"] as? Bool {
+                loggedIn = auth
+                if auth, let u = live["user"] as? String, !u.isEmpty { user = u }
+            }
+            liveError = (live["error"] as? String) ?? ""
+        }
+        if flowState == "done" { loggedIn = true }
+        if flowState == "error" || flowState == "cancelled" { pending = false }
+    }
+
+    func refresh(live: Bool = false) {
+        API.get("/api/tg/status" + (live ? "?live=1" : "")) { [weak self] d in
+            guard let self = self else { return }
+            if d == nil {
+                self.notice = "连不上本地 Web 服务（127.0.0.1:8787），Telegram 配置不可用"
+                self.noticeBad = true
+                self.checking = false
+                return
+            }
+            self.apply(d)
+            self.syncPolling()
+        }
+    }
+
+    func syncPolling() {
+        let need = busy || checking || pending
+        if need && poll == nil {
+            poll = Timer.scheduledTimer(withTimeInterval: 1.2, repeats: true) { [weak self] _ in
+                self?.refresh()
+            }
+        } else if !need && poll != nil {
+            poll?.invalidate()
+            poll = nil
+        }
+    }
+
+    func stopPolling() {
+        poll?.invalidate()
+        poll = nil
+    }
+
+    private func say(_ text: String, bad: Bool = false) {
+        notice = text
+        noticeBad = bad
+    }
+
+    private func err(_ d: [String: Any]?) -> String {
+        if let d = d {
+            if let e = d["error"] as? String, !e.isEmpty { return e }
+            if let t = d["tg"] as? [String: Any], let l = t["login"] as? [String: Any],
+               let m = l["message"] as? String, !m.isEmpty { return m }
+        }
+        return "请求失败（Web 服务没在跑？）"
+    }
+
+    func saveConfig() {
+        pending = true
+        API.postRaw("/api/tg/config", ["api_id": apiId, "api_hash": apiHash]) { [weak self] d in
+            guard let self = self else { return }
+            self.pending = false
+            if (d?["ok"] as? Bool) == true {
+                self.apply(d)
+                self.say("配置已保存到 \(self.cfgPath.isEmpty ? "~/.media-archive/tg.json" : self.cfgPath)")
+                self.prefilled = true
+                self.refresh(live: true)
+            } else {
+                self.say(self.err(d), bad: true)
+            }
+            self.syncPolling()
+        }
+        syncPolling()
+    }
+
+    func sendCode() {
+        var b: [String: Any] = ["phone": phone]
+        if !apiId.isEmpty { b["api_id"] = apiId }
+        if !apiHash.isEmpty { b["api_hash"] = apiHash }
+        pending = true
+        code = ""
+        password = ""
+        API.postRaw("/api/tg/send_code", b) { [weak self] d in
+            guard let self = self else { return }
+            self.pending = false
+            if (d?["ok"] as? Bool) == true {
+                self.apply(d)
+                self.say("")
+            } else {
+                self.say(self.err(d), bad: true)
+            }
+            self.syncPolling()
+        }
+        syncPolling()
+    }
+
+    func submit() {
+        var b: [String: Any] = [:]
+        if !code.isEmpty { b["code"] = code }
+        if !password.isEmpty { b["password"] = password }
+        pending = true
+        API.postRaw("/api/tg/code", b) { [weak self] d in
+            guard let self = self else { return }
+            if (d?["ok"] as? Bool) == true {
+                self.apply(d)
+                self.code = ""
+                self.password = ""
+            } else {
+                self.pending = false
+                self.say(self.err(d), bad: true)
+            }
+            self.syncPolling()
+        }
+        syncPolling()
+    }
+
+    func resend() {
+        pending = true
+        API.postRaw("/api/tg/code", ["resend": true]) { [weak self] d in
+            guard let self = self else { return }
+            self.pending = false
+            self.apply(d)
+            self.say((d?["ok"] as? Bool) == true ? "已重新发送验证码" : self.err(d),
+                     bad: (d?["ok"] as? Bool) != true)
+            self.syncPolling()
+        }
+        syncPolling()
+    }
+
+    func cancelFlow() {
+        API.postRaw("/api/tg/cancel", [:]) { [weak self] d in
+            self?.apply(d)
+            self?.say("已取消")
+        }
+    }
+
+    func logout() {
+        pending = true
+        API.postRaw("/api/tg/logout", [:]) { [weak self] d in
+            guard let self = self else { return }
+            self.pending = false
+            self.apply(d)
+            self.loggedIn = false
+            self.user = ""
+            self.say((d?["message"] as? String) ?? "已退出登录")
+            self.syncPolling()
+        }
+        syncPolling()
     }
 }
 
@@ -1018,6 +1384,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var mainWindow: NSWindow?
     var settingsWindow: NSWindow?
     var settingsModel = SettingsModel()
+    var telegramSetup = TelegramSetup()
     var recordingMonitor: Any?
     var pendingHotkey: [String: Any] = [:]
     var hotKeyKeyCode: UInt32 = 2
@@ -1086,11 +1453,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if UserDefaults.standard.bool(forKey: DEFAULTS_KEY) {
             setAutoWatch(true)
         }
-        // Only auto-open window on first launch; subsequent launches respect user preference
-        let hasOpenedBefore = UserDefaults.standard.bool(forKey: "ma_has_opened")
-        if !hasOpenedBefore {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self.openWindow() }
-            UserDefaults.standard.set(true, forKey: "ma_has_opened")
+        // 启动就把主窗口摆出来：之前只有"首次安装"才自动开，之后每次都要再点一遍 Dock
+        // 必须延迟到 RunLoop 转一圈后：setActivationPolicy(.regular) 需要生效后再 makeKeyAndOrderFront
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self = self else { return }
+            if let w = self.mainWindow, w.isVisible {
+                NSApp.activate(ignoringOtherApps: true)
+                return
+            }
+            self.openWindow()
+            // openWindow 内部已调 activate，但首次冷启动时 macOS 可能吞掉第一次激活
+            // 补一次确保窗口一定在前台
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                NSApp.activate(ignoringOtherApps: true)
+                self.mainWindow?.makeKeyAndOrderFront(nil)
+            }
         }
     }
 
@@ -1269,6 +1646,8 @@ struct WebPanel: NSViewRepresentable {
         ucc.add(DetailWindows.shared, name: "filterAuthor")
         cfg.userContentController = ucc
         let w = WKWebView(frame: .zero, configuration: cfg)
+        // 不禁用 allowsMagnification（macOS 上会导致滚动也失效）
+        // 捏合缩放在 Web JS 里通过 wheel(ctrlKey) 事件处理
         var req = URLRequest(url: url)
         req.cachePolicy = .reloadIgnoringLocalCacheData
         req.timeoutInterval = 30
@@ -1553,8 +1932,10 @@ struct MainView: View {
         }
         pendingHotkey = [:]
         loadSettingsData()
+        telegramSetup.refresh(live: true)      // Telegram 分组：配置态 + 实测登录态
 
         let view = SettingsView(model: settingsModel,
+            tg: telegramSetup,
             onPick: { [weak self] in self?.pickArchiveDir() },
             onOpenDir: { [weak self] in self?.openArchive() },
             onRecord: { [weak self] in self?.toggleRecording() },
@@ -1591,6 +1972,7 @@ struct MainView: View {
         NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification,
                                                object: w, queue: .main) { [weak self] _ in
             if self?.settingsWindow === w { self?.settingsWindow = nil }
+            self?.telegramSetup.stopPolling()      // 设置窗口关了就别再轮询 Telegram 状态
         }
     }
 
@@ -1835,11 +2217,17 @@ struct MainView: View {
                 // prev == 0 = 本次会话第一次看到后端：页面刚加载过，不刷
                 let needReload = (started > 0 && prev != 0 && started != prev)
                 if needReload || web.url == nil {
-                    let ts = Int(Date().timeIntervalSince1970)
-                    if let u = URL(string: "http://127.0.0.1:8787/?v=\(ts)") {
-                        var req = URLRequest(url: u)
-                        req.cachePolicy = .reloadIgnoringLocalCacheData
-                        web.load(req)
+                    // 后端重启时用 JS reload 保持当前页面位置和分类状态
+                    if web.url != nil {
+                        web.evaluateJavaScript("location.reload()", completionHandler: nil)
+                    } else {
+                        // 页面还没加载过（极端情况），走完整 load
+                        let ts = Int(Date().timeIntervalSince1970)
+                        if let u = URL(string: "http://127.0.0.1:8787/?v=\(ts)") {
+                            var req = URLRequest(url: u)
+                            req.cachePolicy = .reloadIgnoringLocalCacheData
+                            web.load(req)
+                        }
                     }
                 }
             }
@@ -1872,9 +2260,10 @@ struct MainView: View {
             openWindow()
             return
         }
-        var req = URLRequest(url: URL(string: "http://127.0.0.1:8787/?t=\(Int(Date().timeIntervalSince1970))")!)
-        req.cachePolicy = .reloadIgnoringLocalCacheData
-        web.load(req)
+        // 用 JS location.reload() 而非 web.load(新URL)：
+        // web.load 会换 URL → Web 端认为是新导航 → sessionStorage 状态丢失 → 跳顶+换页
+        // location.reload() 保留当前 URL + sessionStorage → restoreState/restoreScroll 正常生效
+        web.evaluateJavaScript("location.reload()", completionHandler: nil)
         mainWindow?.makeKeyAndOrderFront(nil)
         if notifyOn("refresh", default: false) { notify("已刷新", "主窗口页面") }
     }
